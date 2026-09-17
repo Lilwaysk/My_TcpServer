@@ -1,0 +1,36 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cmake configure",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-S", ".",
+                "-B", "build",
+                "-G", "Ninja",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "cmake build",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build", "-j"],
+            "dependsOn": ["cmake configure"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "cmake clean",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build", "--target", "clean"],
+            "problemMatcher": []
+        }
+    ]
+}
