@@ -61,16 +61,18 @@ int main()
 
     // 处理子进程
     if(pid == 0) {
-        ret = read(cfd, buf, sizeof(buf));
-        if(ret == 0) {
-            close(cfd);
-            exit(1);
-        }
+        for(;;) {
+            ret = read(cfd, buf, sizeof(buf));
+            if(ret == 0) {
+                close(cfd);
+                exit(1);
+            }
 
-        for(i = 0; i < ret; ++i)
-            buf[i] = toupper(buf[i]);
-        write(cfd, buf, ret);
-        write(STDOUT_FILENO, buf, ret);
+            for(i = 0; i < ret; ++i)
+                buf[i] = toupper(buf[i]);
+            write(cfd, buf, ret);
+            write(STDOUT_FILENO, buf, ret);
+        }
     }
     return 0;
 }
