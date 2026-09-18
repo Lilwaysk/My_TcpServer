@@ -18,30 +18,50 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # ---------------------------------------------------------------------------
-# 自动收集 src/ 下的所有源文件。
-# 这样你以后新增 my_tcp2.cpp、wrap.c 之类的文件，不用改这个 CMakeLists，
-# 重新构建时会自动一起编译（CONFIGURE_DEPENDS 让 CMake 自己去检测新文件）。
+# 共享源文件：不含 main() 的公共代码，每个可执行程序都会一起编译。
 # ---------------------------------------------------------------------------
-file(GLOB PROJECT_SOURCES CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+set(SHARED_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/wrap.c)
 
-if(NOT PROJECT_SOURCES)
-    message(FATAL_ERROR "src/ 下没有找到任何源文件")
-endif()
-
-add_executable(cpp_server ${PROJECT_SOURCES})
-
-target_include_directories(cpp_server PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-target_compile_options(cpp_server PRIVATE -Wall -Wextra)
+# 头文件不参与编译，列在这里只是为了让 IDE 的工程视图里能看到它
+set(SHARED_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/wrap.h)
 
 find_package(Threads REQUIRED)
-target_link_libraries(cpp_server PRIVATE Threads::Threads)
 
-message(STATUS "参与编译的源文件:")
-foreach(src ${PROJECT_SOURCES})
-    message(STATUS "  ${src}")
-endforeach()
+# ---------------------------------------------------------------------------
+# 一个带 main() 的 .cpp 对应一个可执行文件。
+#
+# 以前是把 src/ 下所有源文件一起编译成单个程序，一旦有两个 main 就会报
+# "multiple definition of main"。现在改成逐个登记，fork 版和线程版可以共存，
+# 各自单独构建、单独调试。
+#
+# 以后新增练习程序（比如 epoll 版 src/my_tcp_epoll.cpp），只要在下面加一行：
+#     add_server_program(cpp_server_epoll src/my_tcp_epoll.cpp)
+# 重新配置后就会出现新的构建目标，其他地方都不用改。
+# ---------------------------------------------------------------------------
+function(add_server_program target main_source)
+    set(main_path ${CMAKE_CURRENT_SOURCE_DIR}/${main_source})
+    if(NOT EXISTS ${main_path})
+        message(FATAL_ERROR "找不到源文件: ${main_path}")
+    endif()
+
+    add_executable(${target}
+        ${main_path}
+        ${SHARED_SOURCES}
+        ${SHARED_HEADERS})
+
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+    target_compile_options(${target} PRIVATE -Wall -Wextra)
+
+    target_link_libraries(${target} PRIVATE Threads::Threads)
+endfunction()
+
+add_server_program(cpp_server        src/my_tcp.cpp)         # 一连接一进程（fork 版）
+add_server_program(cpp_server_thread src/my_tcp_thread.cpp)  # 一连接一线程（pthread 版）
+
+message(STATUS "构建目标:")
+message(STATUS "  cpp_server         <- src/my_tcp.cpp        (端口 9999)")
+message(STATUS "  cpp_server_thread  <- src/my_tcp_thread.cpp (端口 8000)")
