@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/wait.h>
 #include <signal.h>
 #include <pthread.h>
 #include <sys/types.h>
@@ -16,6 +17,12 @@
 #define SRV_PORT 9999
 
 using namespace std;
+
+void catch_child(int signum)
+{
+    while(waitpid(0, NULL, WNOHANG) > 0);
+    return;
+}
 
 int main()
 {
@@ -53,6 +60,14 @@ int main()
             close(lfd);
             break;
         } else {
+            struct sigaction act;
+
+            act.sa_handler = catch_child;
+            sigemptyset(&act.sa_mask);
+            act.sa_flags = 0;
+
+            ret = sigaction(SIGCHLD, &act, NULL);
+
             close(cfd);
             continue;
         }
