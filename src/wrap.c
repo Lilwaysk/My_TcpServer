@@ -248,3 +248,10 @@ ssize_t Readline(int fd, void *vptr, size_t maxlen)
     *ptr = '\0';
     return (ssize_t)nread;
 }
+
+int max(int x, int y)
+{
+    if (x > y)
+        return x;
+    return y;
+}
