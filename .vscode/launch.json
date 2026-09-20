@@ -57,6 +57,25 @@
                 }
             ],
             "preLaunchTask": "cmake build"
+        },
+        {
+            "name": "调试 cpp_server_epoll (epoll 版)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/cpp_server_epoll",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "启用 gdb 整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake build"
         }
     ]
 }

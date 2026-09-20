@@ -33,11 +33,11 @@ find_package(Threads REQUIRED)
 # 一个带 main() 的 .cpp 对应一个可执行文件。
 #
 # 以前是把 src/ 下所有源文件一起编译成单个程序，一旦有两个 main 就会报
-# "multiple definition of main"。现在改成逐个登记，fork 版、线程版、select 版
-# 可以共存，各自单独构建、单独调试。
+# "multiple definition of main"。现在改成逐个登记，fork 版、线程版、select 版、
+# epoll 版可以共存，各自单独构建、单独调试。
 #
-# 以后新增练习程序（比如 epoll 版 src/my_tcp_epoll.cpp），只要在下面加一行：
-#     add_server_program(cpp_server_epoll src/my_tcp_epoll.cpp)
+# 以后新增练习程序（比如 poll 版 src/poll.cpp），只要在下面加一行：
+#     add_server_program(cpp_server_poll src/poll.cpp)
 # 重新配置后就会出现新的构建目标，其他地方都不用改。
 # ---------------------------------------------------------------------------
 function(add_server_program target main_source)
@@ -62,8 +62,10 @@ endfunction()
 add_server_program(cpp_server        src/my_tcp.cpp)         # 一连接一进程（fork 版）
 add_server_program(cpp_server_thread src/my_tcp_thread.cpp)  # 一连接一线程（pthread 版）
 add_server_program(cpp_server_select src/select.cpp)         # 单进程 I/O 多路复用（select 版）
+add_server_program(cpp_server_epoll  src/epoll.cpp)          # 单进程 I/O 多路复用（epoll 版）
 
 message(STATUS "构建目标:")
 message(STATUS "  cpp_server         <- src/my_tcp.cpp        (端口 9999)")
 message(STATUS "  cpp_server_thread  <- src/my_tcp_thread.cpp (端口 8000)")
 message(STATUS "  cpp_server_select  <- src/select.cpp        (端口 9999)")
+message(STATUS "  cpp_server_epoll   <- src/epoll.cpp         (端口 8989)")
