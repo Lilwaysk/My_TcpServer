@@ -14,9 +14,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>         /* signal：忽略 SIGPIPE，否则一个断开的客户端就能杀死进程 */
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <netinet/tcp.h>    /* TCP_NODELAY：关掉 Nagle，小包交互不用干等 200ms */
 #include <fcntl.h>
 #include <time.h>       /* time：记录连接的最后活跃时间，用于超时踢人 */
 #include <sys/types.h>
@@ -28,6 +30,8 @@
 #define MAX_EVENTS 1024 /* 最多同时管理的客户端连接数 */
 #define BUFLEN 4096     /* 每个连接的收发缓冲区大小 */
 #define SERV_PORT 8080  /* 默认监听端口 */
+#define IDLE_TIMEOUT 60000      /* 空闲多久断开连接（毫秒） */
+#define MAX_WAIT_MS  1000       /* epoll_wait 单次最长阻塞时间 */
 
 void recvdata(int fd, int events, void *arg);
 void senddata(int fd, int events, void *arg);
@@ -47,10 +51,107 @@ struct myevent_s {
     char buf[BUFLEN];                                   // 收发缓冲区
     int len;                                            // buf 中实际有效的字节数（recv 读到的长度）
     long last_active;                                   // 最后一次活跃的时间戳，用于超时断开
+    int sendpos;                                        /* 已经发出去多少 —— 新增：输出缓冲区的核心 */
+    long expire;                                        /* 定时器到期时刻（毫秒）—— 新增 */
+    int hidx;                                           /* 在定时器堆里的下标，-1 表示不在堆里 —— 新增 */
 };
 
 int g_efd;                                 // epoll 实例的 fd（epoll_create 的返回值）
 struct myevent_s g_events[MAX_EVENTS + 1]; // 所有连接的状态表，最后一个位置留给 listen fd
+
+/* 定时器最小堆：堆里放的是 myevent_s 指针，按 expire 排序 */
+static struct myevent_s *g_heap[MAX_EVENTS];
+static int g_heap_size = 0;
+
+/* 单调时钟，毫秒。别用 time(NULL)，那个精度只有 1 秒                  */
+long now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+/* 最小堆：timers 用                                            */
+static void heap_swap(int i, int j)
+{
+    struct myevent_s *a = g_heap[i];
+    struct myevent_s *b = g_heap[j];
+    g_heap[i] = b;
+    b->hidx = i;
+    g_heap[j] = a;
+    a->hidx = j;
+}
+
+static void heap_up(int i)
+{
+    while (i > 0) {
+        int parent = (i - 1) / 2;
+        if (g_heap[parent]->expire <= g_heap[i]->expire)
+            break;
+        heap_swap(parent, i);
+        i = parent;
+    }
+}
+
+static void heap_down(int i)
+{
+    for (;;) {
+        int l = i * 2 + 1, r = l + 1, small = i;
+
+        if (l < g_heap_size && g_heap[l]->expire < g_heap[small]->expire)
+            small = l;
+        if (r < g_heap_size && g_heap[r]->expire < g_heap[small]->expire)
+            small = r;
+        if (small == i)
+            break;
+
+        heap_swap(small, i);
+        i = small;
+    }
+}
+
+/* 把连接放进定时器堆（新连接、或者之前没在堆里的时候用） */
+static void timer_add(struct myevent_s *ev, long when)
+{
+    ev->expire = when;
+    ev->hidx = g_heap_size;
+    g_heap[g_heap_size++] = ev;
+    heap_up(ev->hidx);
+}
+
+/* 把连接从堆里彻底摘掉 */
+static void timer_del(struct myevent_s *ev)
+{
+    int i = ev->hidx;
+
+    if (i < 0)
+        return ;
+
+    ev->hidx = -1;
+    g_heap_size--;
+
+    if (i == g_heap_size)           /* 摘的正好是最后一个，收工 */
+        return ;
+
+    /* 把最后一个元素挪到空出来的位置，然后上下各调整一次 */
+    g_heap[i] = g_heap[g_heap_size];
+    g_heap[i]->hidx = i;
+    heap_up(i);
+    heap_down(i);
+}
+
+/* 续期：收到/发出数据时把到期时间往后推，O(log n) */
+static void timer_refresh(struct myevent_s *ev, long when)
+{
+    if (ev->hidx < 0) {
+        timer_add(ev, when);
+        return ;
+    }
+
+    ev->expire = when;
+    heap_up(ev->hidx);              /* 变大了可能往下沉，变小了可能往上浮 */
+    heap_down(ev->hidx);
+}
 
 /* 把 fd 从 epoll 上摘下来（只是不再监听，并没有 close） */
 void eventdel(int efd, struct myevent_s *ev)
@@ -108,6 +209,20 @@ void eventadd(int efd, int events, struct myevent_s *ev)
     return ;
 }
 
+/* 统一的关闭入口：定时器、epoll、fd 三样一起收，避免漏             */
+void conn_close(struct myevent_s *ev)
+{
+    printf("[fd=%d] close\n", ev->fd);
+
+    timer_del(ev);              /* 先从定时器堆摘掉，否则就是野指针 */
+    eventdel(g_efd, ev);        /* 再从 epoll 摘掉 */
+    close(ev->fd);
+
+    ev->fd = -1;
+    ev->len = 0;
+    ev->sendpos = 0;            /* status 已经是 0，这个槽位后面会被复用 */
+}
+
 /* 回调：客户端 fd 可读 —— 收数据，然后把监听方向改成“可写”，准备回发 */
 void recvdata(int fd, int events, void *arg)
 {
@@ -124,20 +239,34 @@ void recvdata(int fd, int events, void *arg)
 
     if (len > 0) {
         ev->len = len;
+        ev->sendpos = 0;                                /* 新的一轮发送，从头开始 */
         ev->buf[len] = '\0';                            // 手动添加字符串结束标记，方便 printf
         printf("C[%d]:%s\n", fd, ev->buf);
 
+        timer_refresh(ev, now_ms() + IDLE_TIMEOUT);   /* 有数据往来就续期 */
+
+        eventdel(g_efd, ev);
         eventset(ev, fd, senddata, ev);                 // 设置该 fd 对应的回调函数为 senddata
         eventadd(g_efd, EPOLLOUT, ev);                  // 将 fd 挂到 epoll 中，监听它的写事件
+        return ;
+    }
 
-    } else if (len == 0) {
-        close(ev->fd);                                  // recv 返回 0：对端正常关闭连接
+    if (len == 0) {
+        conn_close(ev);                                  // recv 返回 0：对端正常关闭连接
         // ev -g_events 两个地址相减，得到的是该元素在数组中的下标
         printf("[fd=%d] pos[%ld], closed\n", fd, ev-g_events);
-    } else {
-        close(ev->fd);                                  // 出错（比如收到 RST），直接关掉
-        printf("recv[fd=%d] error[%d]:%s\n", fd, errno, strerror(errno));
+        return;
     }
+
+    /* len < 0 的三种情况要分开处理，别混在一起 */
+    if (errno == EINTR)
+        return ;                    /* 被信号打断，不是错误，等下次事件再来 */
+
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+        return ;                    /* 非阻塞 fd 上没有数据可读，属于正常情况 */
+
+    printf("recv[fd=%d] error[%d]:%s\n", fd, errno, strerror(errno));
+    conn_close(ev);
 
     return ;
 }
@@ -152,18 +281,35 @@ void senddata(int fd, int events, void *arg)
 
     /* 这里只调一次 send，没处理“数据只发出去一部分”和 EAGAIN 的情况，数据量小时够用；
        要严谨的话应记录已发送的偏移量，没发完就继续监听 EPOLLOUT */
-    len = send(fd, ev->buf, ev->len, 0);
-
-    eventdel(g_efd, ev);                                // 从 epoll 上摘掉
+    len = send(fd, ev->buf + ev->sendpos, ev->len - ev->sendpos, 0);
 
     if (len > 0) {
-        printf("send[fd=%d], [%d]%s\n", fd, len, ev->buf);
-        eventset(ev, fd, recvdata, ev);                 // 将该 fd 的回调函数改为 recvdata
-        eventadd(g_efd, EPOLLIN, ev);                   // 重新挂到 epoll，监听它的读事件
-    } else {
-        close(ev->fd);                                  // 发送失败，关闭连接
-        printf("send[fd=%d] error %s\n", fd, strerror(errno));
+        ev->sendpos += len;
+        timer_refresh(ev, now_ms() + IDLE_TIMEOUT);
+
+        if (ev->sendpos == ev->len) {           /* 全部发完，切回等读 */
+            printf("send[fd=%d] done, [%d]%s\n", fd, ev->len, ev->buf);
+
+            eventdel(g_efd, ev);
+            eventset(ev, fd, recvdata, ev);
+            eventadd(g_efd, EPOLLIN, ev);
+        }
+        /*
+         * 没发完：什么都不用做。
+         * EPOLLOUT 还挂在 epoll 上，等内核发送缓冲区腾出空间，会再通知我们一次。
+         */
+        return ;
     }
+
+    if (len < 0 && errno == EINTR)
+        return ;                    /* 被信号打断，重发即可 */
+
+    /* 发送缓冲区满了，等下一次 EPOLLOUT —— 这里绝对不能 close */
+    if (len < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        return ;
+
+    printf("send[fd=%d] error %s\n", fd, strerror(errno));
+    conn_close(ev);
 
     return ;
 }
@@ -178,45 +324,52 @@ void acceptconn(int lfd, int events, void *arg)
     (void)events;   // 同上，签名统一要求
     (void)arg;
 
-    if ((cfd = accept(lfd, (struct sockaddr *)&cin, &len)) == -1) {
-        /* listen fd 是非阻塞的，暂时没有新连接可接时会返回 EAGAIN，属于正常情况，
-           所以只在真正出错时才打印，避免刷屏 */
-        if (errno != EAGAIN && errno != EINTR)
-            printf("%s: accept, %s\n", __func__, strerror(errno));
-        return ;
-    }
+    /*
+     * 一次 epoll_wait 期间可能同时到了好几个连接，必须循环 accept 到 EAGAIN。
+     * LT 下漏掉只是「处理得慢」，但以后切 ET 就是直接丢连接 —— 现在就写对。
+     */
+    for (;;) {
+        len = sizeof(cin);
+        if ((cfd = accept(lfd, (struct sockaddr *)&cin, &len)) == -1) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+                printf("%s: accept, %s\n", __func__, strerror(errno));
+            break;                      /* 这一轮的新连接已经接完了 */
+        }
 
-    do {
-        /* 在 g_events 的前 MAX_EVENTS 个槽位里找一个空的（status == 0）；
-           最后一个是 listen fd 的位置，不能被客户端占用 */
-        for(i = 0; i < MAX_EVENTS; ++i)
+        /* 连接数已达上限：必须 close，否则 fd 泄漏 */
+        for (i = 0; i < MAX_EVENTS; ++i)
             if (g_events[i].status == 0)
                 break;
 
-        if (i == MAX_EVENTS) {                          // 连接数已达上限
+        if (i == MAX_EVENTS) {
             printf("%s: max connect limit[%d]\n", __func__, MAX_EVENTS);
-            close(cfd);                                 // 必须关掉，否则 fd 泄漏
-            break;
-        }
-
-        /* 先取原有标志位再追加 O_NONBLOCK，避免把 fd 上已有的属性覆盖掉 */
-        int flag = fcntl(cfd, F_GETFL, 0);
-        if (flag < 0 || fcntl(cfd, F_SETFL, flag | O_NONBLOCK) < 0) {
-            printf("%s: fcntl nonblocking failed, %s\n", __func__, strerror(errno));
             close(cfd);
             break;
         }
 
-        /* 难点：给新的 cfd 在事件数组里占个位置，并把回调函数设为 recvdata */
-        memset(g_events[i].buf, 0, sizeof(g_events[i].buf));    // 复用旧槽位时先清掉上次残留的数据
+        int flag = fcntl(cfd, F_GETFL, 0);
+        if (flag < 0 || fcntl(cfd, F_SETFL, flag | O_NONBLOCK) < 0) {
+            printf("%s: fcntl nonblocking failed, %s\n", __func__, strerror(errno));
+            close(cfd);
+            continue;                   /* 这个连接放弃，后面的还要接 */
+        }
+
+        /* 关掉 Nagle：echo 这种小包往返场景，延迟比吞吐重要 */
+        int nodelay = 1;
+        setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+        memset(g_events[i].buf, 0, sizeof(g_events[i].buf));
         g_events[i].len = 0;
+        g_events[i].sendpos = 0;
         eventset(&g_events[i], cfd, recvdata, &g_events[i]);
-        eventadd(g_efd, EPOLLIN, &g_events[i]);         // 将 cfd 挂到 epoll 上，监听读事件
+        eventadd(g_efd, EPOLLIN, &g_events[i]);
 
-        printf("new connect [%s:%d][time:%ld], pos[%d]\n",
-                inet_ntoa(cin.sin_addr), ntohs(cin.sin_port), g_events[i].last_active, i);
+        /* 新连接进定时器堆：60 秒没有任何往来就会被踢掉 */
+        timer_add(&g_events[i], now_ms() + IDLE_TIMEOUT);
 
-    } while(0);
+        printf("new connect [%s:%d], pos[%d]\n",
+                inet_ntoa(cin.sin_addr), ntohs(cin.sin_port), i);
+    }
 
     return ;
 }
@@ -258,12 +411,39 @@ void initlistensocket(int efd, short port)
     return ;
 }
 
+/* ------------------------------------------------------------------ */
+/* 处理所有到期的定时器                                                */
+/* ------------------------------------------------------------------ */
+void timer_expire_process(void)
+{
+    long now = now_ms();
+
+    while (g_heap_size > 0 && g_heap[0]->expire <= now) {
+        struct myevent_s *ev = g_heap[0];
+        printf("[fd=%d] timeout\n", ev->fd);
+        conn_close(ev);         /* conn_close 里会 timer_del，把堆顶弹掉 */
+    }
+}
+
 int main(int argc, char *argv[])
 {
     unsigned short port = SERV_PORT;
 
     if (argc == 2)
         port = atoi(argv[1]);       // 也可以在启动时指定端口：./epoll_reactor 8080
+
+    /*
+     * 第一件保命的事：往已经关闭的连接 send 会触发 SIGPIPE，
+     * 默认动作是「杀死进程」—— 一个客户端正常断开就能带走整个服务器。
+     */
+    signal(SIGPIPE, SIG_IGN);
+
+    /* hidx 必须显式初始化成 -1：0 是合法下标，不能用 0 表示“不在堆里” */
+    for (int i = 0; i <= MAX_EVENTS; ++i) {
+        g_events[i].status = 0;
+        g_events[i].hidx = -1;
+        g_events[i].fd = -1;
+    }
 
     g_efd = epoll_create(MAX_EVENTS + 1);   // 参数现在只要求大于 0，具体值内核已忽略
     if (g_efd < 0) {
@@ -276,44 +456,58 @@ int main(int argc, char *argv[])
     struct epoll_event events[MAX_EVENTS + 1];
     printf("server running:port[%d]\n", port);
 
-    int checkpos = 0, i;
-    while(1) {
-        /* 心跳检测：每轮抽查 100 个连接，超过 60 秒没动静就断开 */
-        long now = time(NULL);
-        for(i = 0; i < 100; ++i, checkpos++) {
-            if (checkpos == MAX_EVENTS)     // 只轮询客户端槽位，跳过最后的 listen fd
-                checkpos = 0;
-            if (g_events[checkpos].status != 1)
-                continue;                   // 空槽位，跳过
+    for (;;) {
+        /*
+         * 超时时间按堆顶算：最近一个定时器还有多久到期。
+         * 没有定时器就等 1 秒 —— 这里不再需要“每轮扫 100 个连接”。
+         */
+        int timeout_ms = MAX_WAIT_MS;
 
-            long duration = now - g_events[checkpos].last_active;
+        if (g_heap_size > 0) {
+            long diff = g_heap[0]->expire - now_ms();
 
-            if (duration >= 60) {
-                printf("[fd=%d] timeout\n", g_events[checkpos].fd);
-                eventdel(g_efd, &g_events[checkpos]);   // 先从 epoll 上摘除，再关掉 fd
-                close(g_events[checkpos].fd);
-            }
+            if (diff <= 0)
+                timeout_ms = 0;
+            else if (diff < MAX_WAIT_MS)
+                timeout_ms = (int)diff;
         }
 
-        /* 等待事件，最多阻塞 1 秒；返回的是就绪的 fd 个数 */
-        int nfd = epoll_wait(g_efd, events, MAX_EVENTS+1, 1000);
+        int nfd = epoll_wait(g_efd, events, MAX_EVENTS + 1, timeout_ms);
         if (nfd < 0) {
-            if (errno == EINTR)     // 被信号打断不算错误，继续等
+            if (errno == EINTR)
                 continue;
             printf("epoll_wait error, exit\n");
             break;
         }
 
-        /* 难点：遍历就绪事件，取出对应的 myevent_s，调用里面保存的回调函数 */
-        for(i = 0; i < nfd; ++i) {
+        for (int i = 0; i < nfd; ++i) {
             struct myevent_s *ev = (struct myevent_s *)events[i].data.ptr;
+            uint32_t re = events[i].events;
 
-            if ((events[i].events & EPOLLIN) && (ev->events & EPOLLIN))
-                ev->call_back(ev->fd, events[i].events, ev->arg);
+            if (ev == NULL)
+                continue;
 
-            if ((events[i].events & EPOLLOUT) && (ev->events & EPOLLOUT))
-                ev->call_back(ev->fd, events[i].events, ev->arg);
+            /*
+             * 第二件保命的事：EPOLLERR / EPOLLHUP 是内核无条件上报的，
+             * 即使我们没在 eventadd 里注册。原代码只看 EPOLLIN / EPOLLOUT，
+             * 对端发 RST 时两个 if 都不匹配 -> 回调不会执行 -> 连接永远不关、fd 泄漏。
+             * 这里直接关掉：这两个事件意味着连接已经没救了。
+             */
+            if (re & (EPOLLERR | EPOLLHUP)) {
+                printf("[fd=%d] epollerr/hup, close it\n", ev->fd);
+                conn_close(ev);
+                continue;
+            }
+
+            if ((re & EPOLLIN) && (ev->events & EPOLLIN))
+                ev->call_back(ev->fd, re, ev->arg);
+
+            if ((re & EPOLLOUT) && (ev->events & EPOLLOUT))
+                ev->call_back(ev->fd, re, ev->arg);
         }
+
+        /* 事件处理完再统一清理超时连接 */
+        timer_expire_process();
     }
 
     return 0;

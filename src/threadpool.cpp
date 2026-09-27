@@ -206,7 +206,6 @@ void *adjust_thread(void *threadpool)
             int add = 0;
 
             // 一次增加DEFAULT_THREAD个线程
-            // ★修复: 这里原来写成了 DEFALUT_THREAD_VARY(少了个 N),编译直接报错
             for (i = 0; i < pool->max_thr_num && add < DEFAULT_THREAD_VARY && pool->live_thr_num < pool->max_thr_num; ++i) {
                 if (pool->threads[i] == 0 || !is_thread_alive(pool->threads[i])) {
                     // ★修复: 原来完全没检查 pthread_create 的返回值。
