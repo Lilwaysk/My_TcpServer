@@ -1,0 +1,14 @@
+# 编译产物
+build/
+*.o
+*.a
+*.so
+*.exe
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 系统文件
+.DS_Store
