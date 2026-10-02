@@ -27,8 +27,8 @@
  */
 class Buffer {
 public:
-    static const size_t kCheapPrepend = 8;      /* 预留一点前置空间，方便塞长度头 */
-    static const size_t kInitialSize = 1024;
+    static const size_t kCheapPrepend = 8;      // buffer前8字节留出来不存数据，存"长度头",readerIndex从8开始计算
+    static const size_t kInitialSize = 1024;    // 初始缓冲区大小
 
     explicit Buffer(size_t initialSize = kInitialSize)
         : buffer_(kCheapPrepend + initialSize),
@@ -68,7 +68,9 @@ public:
     ssize_t readFd(int fd, int* savedErrno);
 
 private:
+    // 返回缓冲区内存块的起始位置(可修改指针版)
     char* begin() { return &*buffer_.begin(); }
+    // const对象版(只读不改版)
     const char* begin() const { return &*buffer_.begin(); }
 
     /* 空间不够时的扩容 / 数据前移 */

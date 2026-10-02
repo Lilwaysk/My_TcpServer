@@ -13,16 +13,16 @@
  */
 class Timestamp {
 public:
-    static const int kMicroSecondsPerSecond = 1000 * 1000;
+    static const int kMicroSecondsPerSecond = 1000 * 1000;      // static: 属于整个类共用一份的变量; const: 不可修改
 
     Timestamp() : microSecondsSinceEpoch_(0) {}
-    explicit Timestamp(int64_t microSecondsSinceEpoch)
+    explicit Timestamp(int64_t microSecondsSinceEpoch)          // explict: 禁止隐式类型转换
         : microSecondsSinceEpoch_(microSecondsSinceEpoch) {}
 
-    static Timestamp now();
+    static Timestamp now();                                     // 静态成员函数: 不用对象也可直接调用，是类级别的函数;但本身无this指针，所以不能直接操作对象自己的成员
     static Timestamp invalid() { return Timestamp(); }
 
-    bool valid() const { return microSecondsSinceEpoch_ > 0; }
+    bool valid() const { return microSecondsSinceEpoch_ > 0; }  // 函数名后面加const: 表示该函数不会修改当前对象
 
     int64_t microSecondsSinceEpoch() const { return microSecondsSinceEpoch_; }
 

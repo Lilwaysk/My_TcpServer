@@ -79,7 +79,7 @@ void Buffer::makeSpace(size_t len)
 ssize_t Buffer::readFd(int fd, int* savedErrno)
 {
     /*
-     * 这里是最朴素的写法：先往可写空间里读，读满了再用栈上临时缓冲接一次。
+     * 这里是最朴素的写法：先往可写空间buffer里读，读满了再用一个临时栈缓冲接一次防止数据丢失。
      * muduo 用 readv 一次系统调用同时读进这两个地方，省一次拷贝 ——
      * 等你把这一版跑通了再换过去，别一上来就追这个。
      */

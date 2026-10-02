@@ -48,6 +48,16 @@ add_executable(test_buffer tests/test_buffer.cpp)
 target_link_libraries(test_buffer PRIVATE netlib)
 
 #
+# 下面两个测试的骨架已经写好了，但里面还是 TODO。
+# 等对应的类实现了、并把上面 NET_SOURCES 里那几行打开之后，再解开注释。
+#
+# add_executable(test_channel tests/test_channel.cpp)     # 第 3 步
+# target_link_libraries(test_channel PRIVATE netlib)
+#
+# add_executable(test_timer tests/test_timer.cpp)         # 第 4 步
+# target_link_libraries(test_timer PRIVATE netlib)
+
+#
 # 示例：等第 6 步 TcpServer 写完再打开这个注释
 #
 # add_executable(echo_server examples/echo_server.cpp)
