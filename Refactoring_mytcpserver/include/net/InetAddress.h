@@ -25,11 +25,12 @@ public:
     /* 连接用：ip 是点分十进制字符串 */
     InetAddress(const std::string& ip, uint16_t port);
 
+    /* 通用 sockaddr_in 地址结构的封装 */
     explicit InetAddress(const struct sockaddr_in& addr) : addr_(addr) {}
 
-    std::string toIp() const;
-    std::string toIpPort() const;
-    uint16_t port() const;              /* 主机字节序 */
+    std::string toIp() const;           // ntop的封装，网络字节序转成点分十进制字符串
+    std::string toIpPort() const;       // toip() + port()
+    uint16_t port() const;              // ntohs的封装，网络字节序转成主机字节序(大端转小端)
 
     const struct sockaddr_in& getSockAddrInet() const { return addr_; }
     void setSockAddrInet(const struct sockaddr_in& addr) { addr_ = addr; }

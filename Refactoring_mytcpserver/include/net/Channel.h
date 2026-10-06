@@ -55,15 +55,15 @@ public:
     int revents() const { return revents_; }
 
     /* 修改关注的事件掩码，并通知 EventLoop/Poller 更新 fd 的监听状态。 */
-    // 添加读事件关注；重复调用不会重复添加同一标志。
+    // 添加读事件关注；重复调用不会重复添加同一标志，表示事件可读
     void enableReading() { events_ |= kReadEvent; update(); }
-    // 取消读事件关注；若仍关注写事件，fd 仍会留在 Poller 中。
+    // 取消读事件关注；若仍关注写事件，fd 仍会留在 Poller 中，表示事件不可读
     void disableReading() { events_ &= ~kReadEvent; update(); }
-    // 添加写事件关注。
+    // 添加写事件关注，表示事件可写；重复调用不会重复添加同一标志
     void enableWriting() { events_ |= kWriteEvent; update(); }
-    // 取消写事件关注；若仍关注读事件，fd 仍会留在 Poller 中。
+    // 取消写事件关注；若仍关注读事件，fd 仍会留在 Poller 中，表示事件不可写
     void disableWriting() { events_ &= ~kWriteEvent; update(); }
-    // 清除所有事件关注；Poller 会将该 fd 从 epoll 监听集合中移除。
+    // 清除所有事件关注；Poller 会将该 fd 从 epoll 监听集合中移除，表示事件不可读不可写
     void disableAll() { events_ = kNoneEvent; update(); }
 
     /*

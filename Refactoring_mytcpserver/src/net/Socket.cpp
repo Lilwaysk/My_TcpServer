@@ -11,6 +11,105 @@
 #include "base/Logger.h"
 #include "net/InetAddress.h"
 
+int createNonblockingOrDie()
+{
+    int sockfd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (sockfd < 0)
+    {
+        int savedErrno = errno;
+        LOG_FATAL << "socket() failed: " << ::strerror(savedErrno)
+                  << " (errno = " << savedErrno << ")";
+        ::abort();
+    }
+    return sockfd;
+}
+
+Socket::~Socket()
+{
+    ::close(sockfd_);
+}
+
+void Socket::bindAddress(const InetAddress& localaddr)
+{   // reinterpret_cast<>强制类型转换
+    if (::bind(sockfd_, reinterpret_cast<const struct sockaddr*>(&localaddr.getSockAddrInet()), sizeof(struct sockaddr_in)) < 0) {
+        int savedErrno = errno;
+        LOG_FATAL << "bind() failed on " << localaddr.toIpPort() << ": " << ::strerror(savedErrno) << "(errno = " << savedErrno << ")";
+        ::abort();
+    }
+}
+
+void Socket::listen()
+{
+    if (::listen(sockfd_, SOMAXCONN) < 0) {
+        int savedErrno = errno;
+        LOG_FATAL << "listen() failed: " << ::strerror(savedErrno)
+                  << " (errno=" << savedErrno << ")";
+        ::abort();
+    }
+}
+
+int Socket::accept(InetAddress* peeraddr)
+{
+    struct sockaddr_in addr;
+    ::memset(&addr, 0, sizeof(addr));
+    socklen_t len = sizeof(addr);
+
+    // accept4多了第四个参数可以直接设置非阻塞和关闭旧fd，老版本accept要分步骤设置
+    int connfd = ::accept4(sockfd_, reinterpret_cast<struct sockaddr*>(&addr), &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (connfd >= 0) peeraddr->setSockAddrInet(addr);           //  把对端地址写回调用方
+
+    return connfd;
+}
+
+void Socket::shutdownWrite()
+{
+    // SHUT_WR: 只关闭写不关闭读
+    if (::shutdown(sockfd_, SHUT_WR) < 0) {
+        int savedErrno = errno;
+        LOG_ERROR << "shutdown(SHUT_WR) failed: " << ::strerror(savedErrno) << " (errno= " << savedErrno << ")";
+    }
+}
+
+void Socket::setTcpNoDelay(bool on)
+{
+    int optval = on ? 1 : 0;
+    if (::setsockopt(sockfd_, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval)) < 0) {
+        int savedErrno = errno;;
+        LOG_ERROR << "setsockopt(TCP_NODELAY) failed: " << ::strerror(savedErrno)
+                  << " (errno=" << savedErrno << ")";
+    }
+}
+
+void Socket::setReuseAddr(bool on)
+{
+    int optval = on ? 1 : 0;
+    if (::setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval) < 0)
+    {
+        int savedErrno = errno;
+        LOG_ERROR << "setsockopt(SO_REUSEADDR) failed: " << ::strerror(savedErrno);
+    }
+}
+
+void Socket::setReusePort(bool on)
+{
+    int optval = on ? 1 : 0;
+    if (::setsockopt(sockfd_, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof optval) < 0)
+    {
+        int savedErrno = errno;
+        LOG_ERROR << "setsockopt(SO_REUSEPORT) failed: " << ::strerror(savedErrno);
+    }
+}
+
+void Socket::setKeepAlive(bool on)
+{
+    int optval = on ? 1 : 0;
+    if (::setsockopt(sockfd_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof optval) < 0)
+    {
+        int savedErrno = errno;
+        LOG_ERROR << "setsockopt(SO_KEEPALIVE) failed: " << ::strerror(savedErrno);
+    }
+}
+
 /*
  * ============ Socket 实现清单（README 第四节「第 5 步」）============
  *
