@@ -60,6 +60,18 @@ void EventLoop::loop()
     quit_ = true;
 }
 
+void EventLoop::quit()
+{
+    quit_ = true;
+    /*
+     * 如果是在 loop 线程里调的，当前这一轮事件处理完、回到 while 顶部
+     * 就会看到 quit_ 退出，不需要（也不能依赖）wakeup。
+     * 如果是在别的线程里调的，loop 此刻很可能正阻塞在 epoll_wait 上，
+     * 必须踹它一脚，否则要等到下一个事件到来才会发现 quit_。
+     */
+    if (!isInLoopThread()) wakeup();
+}
+
 void EventLoop::runInLoop(const Functor& cb)
 {
     if (isInLoopThread()) cb();  // 如果当前线程是事件循环线程，直接执行回调函数

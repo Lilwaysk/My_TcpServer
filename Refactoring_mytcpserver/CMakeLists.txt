@@ -19,13 +19,13 @@ set(NET_SOURCES
     src/base/Timestamp.cpp
     src/base/Logger.cpp
     src/net/Buffer.cpp
-    # src/net/Channel.cpp            # 第 3 步
-    # src/net/Poller.cpp             # 第 3 步
-    # src/net/EventLoop.cpp          # 第 4 步
-    # src/net/TimerQueue.cpp         # 第 4 步
-    # src/net/Socket.cpp             # 第 5 步
-    # src/net/InetAddress.cpp        # 第 5 步
-    # src/net/Acceptor.cpp           # 第 5 步
+    src/net/Channel.cpp             # 第 3 步
+    src/net/Poller.cpp              # 第 3 步
+    src/net/EventLoop.cpp           # 第 4 步
+    src/net/TimerQueue.cpp          # 第 4 步
+    src/net/Socket.cpp              # 第 5 步
+    src/net/InetAddress.cpp         # 第 5 步
+    src/net/Acceptor.cpp            # 第 5 步
     # src/net/TcpConnection.cpp      # 第 6 步
     # src/net/TcpServer.cpp          # 第 6 步
     # src/net/EventLoopThread.cpp    # 第 7 步
@@ -48,14 +48,31 @@ add_executable(test_buffer tests/test_buffer.cpp)
 target_link_libraries(test_buffer PRIVATE netlib)
 
 #
-# 下面两个测试的骨架已经写好了，但里面还是 TODO。
-# 等对应的类实现了、并把上面 NET_SOURCES 里那几行打开之后，再解开注释。
+# 第 3 步的测试：Channel + Poller。
 #
-# add_executable(test_channel tests/test_channel.cpp)     # 第 3 步
-# target_link_libraries(test_channel PRIVATE netlib)
+add_executable(test_channel tests/test_channel.cpp)
+target_link_libraries(test_channel PRIVATE netlib)
+
 #
-# add_executable(test_timer tests/test_timer.cpp)         # 第 4 步
-# target_link_libraries(test_timer PRIVATE netlib)
+# 第 4 步的测试：EventLoop + TimerQueue。
+#
+add_executable(test_eventloop tests/test_eventloop.cpp)
+target_link_libraries(test_eventloop PRIVATE netlib)
+
+add_executable(test_timer tests/test_timer.cpp)
+target_link_libraries(test_timer PRIVATE netlib)
+
+#
+# 第 5 步的测试：Socket + InetAddress + Acceptor。
+#
+add_executable(test_inetaddress tests/test_inetaddress.cpp)
+target_link_libraries(test_inetaddress PRIVATE netlib)
+
+add_executable(test_socket tests/test_socket.cpp)
+target_link_libraries(test_socket PRIVATE netlib)
+
+add_executable(test_acceptor tests/test_acceptor.cpp)
+target_link_libraries(test_acceptor PRIVATE netlib)
 
 #
 # 示例：等第 6 步 TcpServer 写完再打开这个注释

@@ -40,19 +40,19 @@ void Acceptor::listen()
 
 void Acceptor::handleRead()
 {
-    InetAddress peerAddr;
+    InetAddress peerAddr;       // sockaddr_in 的封装
     for (;;) {
         int connfd = acceptSocket_.accept(&peerAddr);
         if (connfd >= 0)
-            if (newConnectionCallback_)
+            if (newConnectionCallback_)                     // newConnectionCallback: 当新连接到来时的处理函数
                 newConnectionCallback_(connfd, peerAddr);
             else
                 ::close(connfd);
         else {
             int savedErrno = errno;
-            if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK) break;
-            if (savedErrno == EINTR) continue;
-            if (savedErrno == EMFILE) {
+            if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK) break;       // 无新连接 或 socket为非阻塞模式且没资源可用
+            if (savedErrno == EINTR) continue;                                  // 系统调用被信号打断
+            if (savedErrno == EMFILE) {                                         // 进程打开的fd达到上限了，服务器连接数量太多
                 // fd 耗尽，腾一个位置accept掉再关掉，通知对端“现在忙”
                 ::close(idleFd_);
                 idleFd_ = ::open("/dev/null", O_RDONLY | O_CLOEXEC);

@@ -1,7 +1,10 @@
 #include "base/Timestamp.h"
 #include "net/EventLoop.h"
 
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <vector>
 
 /*
  * TimerQueue 的测试（README 第四节「第 4 步」的验收）。
@@ -31,34 +34,108 @@ static int g_failed = 0;
         }                                                                   \
     } while (0)
 
+/* a 到 b 之间经过了多少微秒 */
+static int64_t usBetween(Timestamp a, Timestamp b)
+{
+    return b.microSecondsSinceEpoch() - a.microSecondsSinceEpoch();
+}
+
 static void testRunAfterFiresOnce()
 {
     printf("testRunAfterFiresOnce\n");
-    /* TODO: runAfter(0.1, cb)，记下触发时刻，断言只触发一次且偏差 < 30ms */
+
+    EventLoop loop;
+    int count = 0;
+    Timestamp scheduled = Timestamp::now();
+    Timestamp fired;
+
+    loop.runAfter(0.1, [&]() {
+        ++count;
+        fired = Timestamp::now();
+        loop.quit();
+    });
+    /* 安全阀：定时器真出问题时别让测试挂死，1 秒后强制退出 */
+    loop.runAfter(1.0, [&]() { loop.quit(); });
+
+    loop.loop();
+
+    EXPECT_TRUE(count == 1);            /* 一次性定时器只触发一次 */
+    EXPECT_TRUE(fired.valid());
+    if (fired.valid()) {
+        int64_t actual = usBetween(scheduled, fired);
+        int64_t dev = actual - 100000;  /* 预期 100ms */
+        printf("  fired after %.3f ms, deviation %.3f ms\n",
+               actual / 1000.0, dev / 1000.0);
+        EXPECT_TRUE(std::llabs(dev) < 30000);   /* 偏差 < 30ms */
+    }
 }
 
 static void testRunEveryFiresRepeatedly()
 {
     printf("testRunEveryFiresRepeatedly\n");
-    /* TODO: runEvery(0.05, cb)，跑 0.3 秒，断言触发次数大约 6 次 */
+
+    EventLoop loop;
+    int count = 0;
+
+    loop.runEvery(0.05, [&]() { ++count; });
+    loop.runAfter(0.31, [&]() { loop.quit(); });
+
+    loop.loop();
+
+    /* 0.31 秒里，50ms 周期大概触发 6 次，放宽到 5~7 次 */
+    printf("  fired %d times in ~0.31s\n", count);
+    EXPECT_TRUE(count >= 5 && count <= 7);
 }
 
 static void testSameDeadlinePreservesOrder()
 {
     printf("testSameDeadlinePreservesOrder\n");
-    /* TODO: 同一时刻加 3 个定时器，断言回调执行顺序 == 加入顺序 */
+
+    EventLoop loop;
+    std::vector<int> order;
+    Timestamp when = addTime(Timestamp::now(), 0.05);
+
+    for (int i = 0; i < 3; ++i) {
+        loop.runAt(when, [&order, i]() { order.push_back(i); });
+    }
+    loop.runAfter(0.3, [&]() { loop.quit(); });
+
+    loop.loop();
+
+    EXPECT_TRUE(order.size() == 3);
+    bool inOrder = (order.size() == 3 && order[0] == 0 && order[1] == 1 && order[2] == 2);
+    EXPECT_TRUE(inOrder);
+    if (!inOrder)
+        printf("  order = [%zu]: %d %d %d\n", order.size(),
+               order.size() > 0 ? order[0] : -1,
+               order.size() > 1 ? order[1] : -1,
+               order.size() > 2 ? order[2] : -1);
 }
 
 static void testTimerAddedInsideCallback()
 {
     printf("testTimerAddedInsideCallback\n");
 
+    EventLoop loop;
+    bool secondFired = false;
+
     /*
-     * TODO: 在回调里再加一个定时器，断言它也能正常触发。
-     *       这条守的是 handleRead 里「先 getExpired 摘掉 → 再 run → 最后 reset」
-     *       那个执行顺序：如果顺序写错，回调里新加的定时器会被这次
-     *       的 getExpired 结果覆盖掉，表现为「偶尔漏触发一次」。
+     * 在回调里再加一个定时器。这条守的是 handleRead 里
+     * 「先 getExpired 摘掉 → 再 run → 最后 reset」的执行顺序：
+     * 顺序写错的话，回调里新加的定时器会被这次的 getExpired 结果覆盖掉，
+     * 表现为「偶尔漏触发一次」。
      */
+    loop.runAfter(0.05, [&]() {
+        loop.runAfter(0.05, [&]() {
+            secondFired = true;
+            loop.quit();
+        });
+    });
+    loop.runAfter(1.0, [&]() { loop.quit(); });  /* 安全阀 */
+
+    loop.loop();
+
+    EXPECT_TRUE(secondFired);
 }
 
 int main()

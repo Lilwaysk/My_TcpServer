@@ -2,7 +2,8 @@
 
 这份 README 是重构期间的**文件地图**：每个文件放什么、依赖谁、按什么顺序写。
 
-当前进度：**第 1、2 步已完成**（Timestamp / Logger / Buffer + 单元测试，可编译可运行）。
+当前进度：**第 1~5 步已完成**（base + Buffer + Channel/Poller + EventLoop/TimerQueue +
+Socket/InetAddress/Acceptor，均有单元测试，可编译可运行）。
 
 ---
 
@@ -22,14 +23,14 @@ mytcpserver/
 │   └── net/                      # 网络库
 │       ├── Callbacks.h           # 回调类型别名，避免头文件互相包含
 │       ├── Buffer.h              # 输入/输出缓冲区             [已完成]
-│       ├── Channel.h             # 一个 fd + 关注的事件 + 回调（= 你的 myevent_s）
-│       ├── Poller.h              # epoll 封装，唯一碰 epoll_ctl / epoll_wait 的地方
-│       ├── EventLoop.h           # 每线程一个的事件循环（= 你的 while(1)）
-│       ├── Timer.h               # 定时器句柄
-│       ├── TimerQueue.h          # 定时器（最小堆）
-│       ├── Socket.h              # socket 的 RAII 封装
-│       ├── InetAddress.h         # sockaddr_in 的封装
-│       ├── Acceptor.h            # 只管 accept（= 你的 acceptconn）
+│       ├── Channel.h             # 一个 fd + 关注的事件 + 回调（= 你的 myevent_s）  [已完成]
+│       ├── Poller.h              # epoll 封装，唯一碰 epoll_ctl / epoll_wait 的地方  [已完成]
+│       ├── EventLoop.h           # 每线程一个的事件循环（= 你的 while(1)）          [已完成]
+│       ├── Timer.h               # 定时器句柄                                      [已完成]
+│       ├── TimerQueue.h          # 定时器（timerfd + set 排序）                    [已完成]
+│       ├── Socket.h              # socket 的 RAII 封装                 [已完成]
+│       ├── InetAddress.h         # sockaddr_in 的封装                  [已完成]
+│       ├── Acceptor.h            # 只管 accept（= 你的 acceptconn）    [已完成]
 │       ├── TcpConnection.h       # 一条连接（= recvdata / senddata 合体）
 │       ├── TcpServer.h           # 服务器门面，用户只用这一个类
 │       ├── EventLoopThread.h     # 起一个线程跑 EventLoop          （阶段 3）
@@ -41,13 +42,13 @@ mytcpserver/
 │   │   └── Logger.cpp            [已完成]
 │   └── net/
 │       ├── Buffer.cpp            [已完成]
-│       ├── Channel.cpp
-│       ├── Poller.cpp
-│       ├── EventLoop.cpp
-│       ├── TimerQueue.cpp
-│       ├── Socket.cpp
-│       ├── InetAddress.cpp
-│       ├── Acceptor.cpp
+│       ├── Channel.cpp           [已完成]
+│       ├── Poller.cpp            [已完成]
+│       ├── EventLoop.cpp         [已完成]
+│       ├── TimerQueue.cpp        [已完成]
+│       ├── Socket.cpp            [已完成]
+│       ├── InetAddress.cpp       [已完成]
+│       ├── Acceptor.cpp          [已完成]
 │       ├── TcpConnection.cpp
 │       ├── TcpServer.cpp
 │       ├── EventLoopThread.cpp
@@ -58,8 +59,12 @@ mytcpserver/
 │
 ├── tests/                        # 单元测试：每个基础类配一个
 │   ├── test_buffer.cpp           [已完成]
-│   ├── test_timer.cpp
-│   └── test_channel.cpp
+│   ├── test_channel.cpp          [已完成]
+│   ├── test_eventloop.cpp        [已完成]
+│   ├── test_timer.cpp            [已完成]
+│   ├── test_inetaddress.cpp      [已完成]
+│   ├── test_socket.cpp           [已完成]
+│   └── test_acceptor.cpp         [已完成]
 │
 └── build/                        # 编译产物，不进 git
 ```
@@ -117,10 +122,10 @@ examples/  ──►  net/  ──►  base/
 | --- | --- | --- | --- |
 | 1 | `Timestamp` / `Logger` / `noncopyable` | 日志带时间戳和级别，级别能过滤 | 完成 |
 | 2 | **`Buffer`** + 单元测试 | 单测全过（含扩容和黏包场景） | 完成 |
-| 3 | `Channel` + `Poller` | 写个 main 直接驱动这俩，收发包能通（先不引入 EventLoop） | 下一步 |
-| 4 | `EventLoop` + `TimerQueue` | 把老代码的主循环搬进来，行为一致 | |
-| 5 | `Socket` + `InetAddress` + `Acceptor` | 能 accept 新连接并打印对端地址 | |
-| 6 | `TcpConnection` + `TcpServer` | **用 TcpServer 重写 echo，跑通且不回退** | |
+| 3 | `Channel` + `Poller` | 写个 main 直接驱动这俩，收发包能通（先不引入 EventLoop） | 完成 |
+| 4 | `EventLoop` + `TimerQueue` | 把老代码的主循环搬进来，行为一致 | 完成 |
+| 5 | `Socket` + `InetAddress` + `Acceptor` | 能 accept 新连接并打印对端地址 | 完成 |
+| 6 | `TcpConnection` + `TcpServer` | **用 TcpServer 重写 echo，跑通且不回退** | 下一步 |
 | 7 | `EventLoopThread` + `EventLoopThreadPool` | 主从 Reactor，QPS 随核数上涨 | |
 
 第 3 步之所以先做 `Channel` + `Poller` 而不是直接上 `EventLoop`，
@@ -141,23 +146,34 @@ g++ -std=c++11 -Wall -Wextra -Iinclude \
     tests/test_buffer.cpp -o build/test_buffer
 ./build/test_buffer
 
-# 方式二：CMake
+# 方式二：CMake（推荐，一次编出全部测试）
 mkdir -p build && cd build
 cmake .. && make -j
 ./test_buffer
+./test_channel
+./test_eventloop
+./test_timer
+./test_inetaddress
+./test_socket
+./test_acceptor
 ```
 
-当前测试结果：
+当前测试结果（在 `build/` 下依次运行上面 7 个可执行文件）：
 
 ```
-testInitialState
-testAppendAndRetrieve
-testGrowKeepsData
-testMakeSpaceMoveFront
-testRetrieveMoreThanReadable
-
-18 checks, 0 failed
+test_buffer       18 checks, 0 failed
+test_channel       8 checks, 0 failed
+test_eventloop     8 checks, 0 failed
+test_timer         7 checks, 0 failed
+test_inetaddress  17 checks, 0 failed
+test_socket       19 checks, 0 failed
+test_acceptor      8 checks, 0 failed
 ```
+
+`test_eventloop` / `test_timer` / `test_acceptor` 会真起一个 EventLoop 跑几十到几百毫秒，
+所以耗时不完全是 0；`test_socket` / `test_acceptor` 会真的 bind/listen/connect，
+`test_inetaddress` 的非法地址用例靠 fork 让子进程 abort，父进程检查 SIGABRT。
+这些用例都带安全阀，即使断言失败也会在 1~2 秒内退出，不会挂死。
 
 ---
 
