@@ -19,6 +19,7 @@ class InetAddress;
  */
 class Acceptor : noncopyable {
 public:
+    // 处理新连接的回调函数
     typedef std::function<void(int sockfd, const InetAddress&)> NewConnectionCallback;
 
     Acceptor(EventLoop* loop, const InetAddress& listenAddr);

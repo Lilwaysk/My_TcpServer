@@ -32,7 +32,7 @@ public:
     std::string toIpPort() const;       // toip() + port()
     uint16_t port() const;              // ntohs的封装，网络字节序转成主机字节序(大端转小端)
 
-    const struct sockaddr_in& getSockAddrInet() const { return addr_; }
+    const struct sockaddr_in& getSockAddrInet() const { return addr_; }         // 获取sockaddr_in类型的addr地址
     void setSockAddrInet(const struct sockaddr_in& addr) { addr_ = addr; }
 
 private:

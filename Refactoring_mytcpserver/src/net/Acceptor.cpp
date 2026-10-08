@@ -1,12 +1,68 @@
 #include "net/Acceptor.h"
 
 #include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
 
 #include "base/Logger.h"
 #include "net/EventLoop.h"
 #include "net/InetAddress.h"
+
+Acceptor::Acceptor(EventLoop* loop, const InetAddress& listenAddr):
+    loop_(loop),
+    acceptSocket_(createNonblockingOrDie()),
+    acceptChannel_(loop, acceptSocket_.fd()),
+    listening_(false),
+    idleFd_(::open("/dev/null", O_RDONLY | O_CLOEXEC))
+{
+    acceptSocket_.setReuseAddr(true);
+    acceptSocket_.bindAddress(listenAddr);
+}
+
+Acceptor::~Acceptor()
+{
+    // 先从epoll里摘掉，避免fd关了还有人监听
+    acceptChannel_.disableAll();
+    acceptChannel_.remove();
+    ::close(idleFd_);
+    // acceptSocket_析构时自动close监听fd
+}
+
+void Acceptor::listen()
+{
+    loop_->assertInLoopThread();            // 必须在loop线程里面做
+    acceptSocket_.listen();
+    acceptChannel_.setReadCallback([this](){ handleRead(); });
+    acceptChannel_.enableReading();
+    listening_ = true;
+}
+
+void Acceptor::handleRead()
+{
+    InetAddress peerAddr;
+    for (;;) {
+        int connfd = acceptSocket_.accept(&peerAddr);
+        if (connfd >= 0)
+            if (newConnectionCallback_)
+                newConnectionCallback_(connfd, peerAddr);
+            else
+                ::close(connfd);
+        else {
+            int savedErrno = errno;
+            if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK) break;
+            if (savedErrno == EINTR) continue;
+            if (savedErrno == EMFILE) {
+                // fd 耗尽，腾一个位置accept掉再关掉，通知对端“现在忙”
+                ::close(idleFd_);
+                idleFd_ = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+                continue;
+            }
+            LOG_ERROR << "acept failed: " << ::strerror(savedErrno);
+            break;
+        }
+    }
+}
 
 /*
  * ============ Acceptor 实现清单（README 第四节「第 5 步」）============
