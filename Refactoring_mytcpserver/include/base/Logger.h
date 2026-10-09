@@ -14,6 +14,7 @@
  *
  * 注意：这是同步日志，写盘会阻塞 IO 线程。异步日志是后面的事。
  */
+// 六种日志等级
 enum class LogLevel { TRACE, DEBUG, INFO, WARN, ERROR, FATAL };
 
 class Logger {
@@ -23,32 +24,34 @@ public:
 
     std::ostringstream& stream() { return stream_; }
 
-    static void setLevel(LogLevel level);
-    static LogLevel level();
-    static const char* levelName(LogLevel level);
+    static void setLevel(LogLevel level);                   // 设置日志等级
+    static LogLevel getLevel();                             // 获取当前全局日志等级
+    static const char* levelName(LogLevel level);           // 返回level的等级名字
 
 private:
-    const char* file_;
+    const char* file_;                                      // 保存的是产生日志的源代码文件名
     int line_;
     LogLevel level_;
-    std::ostringstream stream_;
+    std::ostringstream stream_;                             // Logger析构时，返回的日志输出流
 };
 
 /*
  * 先判级别再构造对象：级别不够时连字符串拼接都省了。
  * 这种写法有经典的悬垂 else 问题，所以别把它塞进 if/else 的简写里。
+ * __FILE__: 当前源文件的文件名
+ * __LINE__: 当前代码所在的行号
  */
 #define LOG_TRACE \
-    if (Logger::level() <= LogLevel::TRACE) Logger(__FILE__, __LINE__, LogLevel::TRACE).stream()
+    if (Logger::getLevel() <= LogLevel::TRACE) Logger(__FILE__, __LINE__, LogLevel::TRACE).stream()
 #define LOG_DEBUG \
-    if (Logger::level() <= LogLevel::DEBUG) Logger(__FILE__, __LINE__, LogLevel::DEBUG).stream()
+    if (Logger::getLevel() <= LogLevel::DEBUG) Logger(__FILE__, __LINE__, LogLevel::DEBUG).stream()
 #define LOG_INFO \
-    if (Logger::level() <= LogLevel::INFO) Logger(__FILE__, __LINE__, LogLevel::INFO).stream()
+    if (Logger::getLevel() <= LogLevel::INFO) Logger(__FILE__, __LINE__, LogLevel::INFO).stream()
 #define LOG_WARN \
-    if (Logger::level() <= LogLevel::WARN) Logger(__FILE__, __LINE__, LogLevel::WARN).stream()
+    if (Logger::getLevel() <= LogLevel::WARN) Logger(__FILE__, __LINE__, LogLevel::WARN).stream()
 #define LOG_ERROR \
-    if (Logger::level() <= LogLevel::ERROR) Logger(__FILE__, __LINE__, LogLevel::ERROR).stream()
+    if (Logger::getLevel() <= LogLevel::ERROR) Logger(__FILE__, __LINE__, LogLevel::ERROR).stream()
 #define LOG_FATAL \
-    if (Logger::level() <= LogLevel::FATAL) Logger(__FILE__, __LINE__, LogLevel::FATAL).stream()
+    if (Logger::getLevel() <= LogLevel::FATAL) Logger(__FILE__, __LINE__, LogLevel::FATAL).stream()
 
 #endif

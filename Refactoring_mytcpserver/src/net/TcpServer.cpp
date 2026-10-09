@@ -1,5 +1,6 @@
 #include "net/TcpServer.h"
 
+#include <cassert>
 #include <cstdio>
 
 #include "base/Logger.h"
@@ -7,6 +8,54 @@
 #include "net/EventLoop.h"
 #include "net/EventLoopThreadPool.h"
 #include "net/TcpConnection.h"
+
+TcpServer::TcpServer(EventLoop* loop, const InetAddress& listenAddr,
+                     const std::string& nameArg, Option option)
+                    :loop_(loop),
+                     ipPort_(listenAddr.toIpPort()),
+                     name_(nameArg),
+                     started_(false),
+                     nextConnId_(1)
+{
+    assert(loop_ != nullptr);
+
+    acceptor_.reset(new Acceptor(loop_, listenAddr, option == kReusePort));
+    acceptor_->setNewConnectionCallback([this](int sockfd, const InetAddress& peerAddr){
+        newConnection(sockfd, peerAddr)
+    });
+
+    threadPool_->reset(new EventLoopThreadPool(loop_, name_));
+}
+
+TcpServer::~TcpServer()
+{
+
+}
+
+void TcpServer::setThreadNum(int numThreads)
+{
+
+}
+
+void TcpServer::start()
+{
+
+}
+
+void TcpServer::newConnection(int sockfd, const InetAddress& peerAddr)
+{
+
+}
+
+void TcpServer::removeConnection(const TcpConnectionPtr& conn)
+{
+
+}
+
+void TcpServer::removeConnectionInLoop(const TcpConnectionPtr& conn)
+{
+
+}
 
 /*
  * ============ TcpServer 实现清单（README 第四节「第 6 步」）============
@@ -53,12 +102,3 @@
  *
  * 验收：examples/echo_server.cpp 跑起来，行为要和现在的 epoll 版本一致。
  */
-
-// TcpServer::TcpServer(EventLoop* loop, const InetAddress& listenAddr,
-//                      const std::string& nameArg, Option option) { /* ... */ }
-// TcpServer::~TcpServer() { /* ... */ }
-// void TcpServer::setThreadNum(int numThreads) { /* ... */ }
-// void TcpServer::start() { /* ... */ }
-// void TcpServer::newConnection(int sockfd, const InetAddress& peerAddr) { /* ... */ }
-// void TcpServer::removeConnection(const TcpConnectionPtr& conn) { /* ... */ }
-// void TcpServer::removeConnectionInLoop(const TcpConnectionPtr& conn) { /* ... */ }

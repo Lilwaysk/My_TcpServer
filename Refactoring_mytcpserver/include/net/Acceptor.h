@@ -22,7 +22,8 @@ public:
     // 处理新连接的回调函数
     typedef std::function<void(int sockfd, const InetAddress&)> NewConnectionCallback;
 
-    Acceptor(EventLoop* loop, const InetAddress& listenAddr);
+    Acceptor(EventLoop* loop, const InetAddress& listenAddr,
+             bool reusePort = false);
     ~Acceptor();
 
     void setNewConnectionCallback(const NewConnectionCallback& cb)

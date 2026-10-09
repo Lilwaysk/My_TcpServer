@@ -7,8 +7,8 @@
 
 namespace {
 
-LogLevel g_level = LogLevel::INFO;
-std::mutex g_mutex;
+LogLevel g_level = LogLevel::INFO;                  // 保存当前全局日志等级
+std::mutex g_mutex;                                 // 全局互斥锁，保护日志等级的读写，也保证多线程输出日志时不会交错
 
 }  // namespace
 
@@ -35,11 +35,11 @@ Logger::~Logger()
 
 void Logger::setLevel(LogLevel level)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::mutex> lock(g_mutex);          // lock_guard会自动解锁，lock_guard<锁的类型>
     g_level = level;
 }
 
-LogLevel Logger::level()
+LogLevel Logger::getLevel()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_level;

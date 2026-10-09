@@ -9,7 +9,8 @@
 #include "net/EventLoop.h"
 #include "net/InetAddress.h"
 
-Acceptor::Acceptor(EventLoop* loop, const InetAddress& listenAddr):
+Acceptor::Acceptor(EventLoop* loop, const InetAddress& listenAddr,
+                   bool reusePort):
     loop_(loop),
     acceptSocket_(createNonblockingOrDie()),
     acceptChannel_(loop, acceptSocket_.fd()),
@@ -17,6 +18,7 @@ Acceptor::Acceptor(EventLoop* loop, const InetAddress& listenAddr):
     idleFd_(::open("/dev/null", O_RDONLY | O_CLOEXEC))
 {
     acceptSocket_.setReuseAddr(true);
+    acceptSocket_.setReusePort(reusePort);
     acceptSocket_.bindAddress(listenAddr);
 }
 
