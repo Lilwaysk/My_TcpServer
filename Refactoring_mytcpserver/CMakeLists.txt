@@ -26,7 +26,7 @@ set(NET_SOURCES
     src/net/Socket.cpp              # 第 5 步
     src/net/InetAddress.cpp         # 第 5 步
     src/net/Acceptor.cpp            # 第 5 步
-    # src/net/TcpConnection.cpp      # 第 6 步
+    src/net/TcpConnection.cpp       # 第 6 步
     # src/net/TcpServer.cpp          # 第 6 步
     # src/net/EventLoopThread.cpp    # 第 7 步
     # src/net/EventLoopThreadPool.cpp# 第 7 步

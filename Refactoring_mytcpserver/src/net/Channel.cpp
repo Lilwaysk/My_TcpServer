@@ -22,7 +22,8 @@ Channel::~Channel()
 
 void Channel::tie(const std::shared_ptr<void>& obj)
 {
-
+    tie_ = obj;
+    tied_ = true;
 }
 
 void Channel::update()
@@ -57,6 +58,12 @@ void Channel::handleEventWithGuard()
 
 void Channel::handleEvent()
 {
+    std::shared_ptr<void> guard;
+    if (tied_) {
+        guard = tie_.lock();
+        if (!guard) return;
+    }
+
     eventHandling_ = true;
     handleEventWithGuard();
     eventHandling_ = false;

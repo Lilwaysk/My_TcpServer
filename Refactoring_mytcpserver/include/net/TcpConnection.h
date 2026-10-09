@@ -28,6 +28,8 @@ class Socket;
 class TcpConnection : noncopyable,
                       public std::enable_shared_from_this<TcpConnection> {
 public:
+    // 构造一条 TcpConnection。
+    // socket 的所有权转交给 TcpConnection。
     TcpConnection(EventLoop* loop,
                   const std::string& name,
                   int sockfd,
@@ -35,67 +37,87 @@ public:
                   const InetAddress& peerAddr);
     ~TcpConnection();
 
+    // 返回该连接所属的 EventLoop。
     EventLoop* getLoop() const { return loop_; }
+    // 返回连接名。
     const std::string& name() const { return name_; }
+    // 返回本地地址。
     const InetAddress& localAddress() const { return localAddr_; }
+    // 返回对端地址。
     const InetAddress& peerAddress() const { return peerAddr_; }
+    // 返回连接是否已建立。
     bool connected() const { return state_ == kConnected; }
 
-    /* 线程安全：内部会转到 loop 线程再真正发送 */
+    // 线程安全：内部会转到 loop 线程真正执行发送。
     void send(const std::string& message);
     void send(const void* data, size_t len);
 
-    /* 只关写端，还能继续读（半关闭）*/
+    // 只关闭写端，仍可继续读取。
     void shutdown();
 
-    /* 立刻关，不等待缓冲区发完 */
+    // 立刻关闭连接，不等待缓冲区中的数据发送完。
     void forceClose();
 
+    // 设置连接建立时的回调。
     void setConnectionCallback(const ConnectionCallback& cb) { connectionCallback_ = cb; }
+    // 设置消息到达时的回调。
     void setMessageCallback(const MessageCallback& cb) { messageCallback_ = cb; }
+    // 设置写完成时的回调。
     void setWriteCompleteCallback(const WriteCompleteCallback& cb) { writeCompleteCallback_ = cb; }
+    // 设置连接关闭时的回调。
     void setCloseCallback(const CloseCallback& cb) { closeCallback_ = cb; }
+    // 设置高水位回调和阈值。
     void setHighWaterMarkCallback(const HighWaterMarkCallback& cb, size_t highWaterMark);
 
-    /* 只有 TcpServer 会调这两个 */
+    // 由 TcpServer 在连接建立时调用。
     void connectEstablished();
+    // 由 TcpServer 在连接销毁时调用。
     void connectDestroyed();
 
 private:
+    // 连接的状态。
     enum StateE { kDisconnected, kConnecting, kConnected, kDisconnecting };
 
+    // 设置连接状态。
     void setState(StateE s) { state_ = s; }
 
-    /* Channel 的四个回调落点 */
+    // Channel 的四类事件回调入口。
     void handleRead();
     void handleWrite();
     void handleClose();
     void handleError();
 
+    // 线程安全的发送/关闭操作最终都转到 loop 线程里执行。
     void sendInLoop(const std::string& message);
     void sendInLoop(const void* data, size_t len);
     void shutdownInLoop();
     void forceCloseInLoop();
 
+    // 该连接所属的事件循环。
     EventLoop* loop_;
+    // 连接名称，常见形式如 "server#1"。
     const std::string name_;
+    // 连接状态。
     StateE state_;
+    // 封装 socket 的 RAII 对象。
     std::unique_ptr<Socket> socket_;
+    // 用于监听 socket 事件的 Channel。
     std::unique_ptr<Channel> channel_;
+    // 本地地址和对端地址。
     const InetAddress localAddr_;
     const InetAddress peerAddr_;
 
+    // 用户注册的回调。
     ConnectionCallback connectionCallback_;
     MessageCallback messageCallback_;
     WriteCompleteCallback writeCompleteCallback_;
     HighWaterMarkCallback highWaterMarkCallback_;
     CloseCallback closeCallback_;
+    // 输出缓冲区高水位线。
     size_t highWaterMark_;
 
-    /*
-     * 输入缓冲：readFd 往这里读，粘包的数据在这里攒着等上层切。
-     * 输出缓冲：send 时内核写不下就留在这里，等 EPOLLOUT 再续。
-     */
+    // 输入缓冲区：存放从 socket 读到的数据。
+    // 输出缓冲区：存放尚未完全写入 socket 的数据。
     Buffer inputBuffer_;
     Buffer outputBuffer_;
 };
