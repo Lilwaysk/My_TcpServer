@@ -163,37 +163,109 @@ void TcpConnection::send(const void* data, size_t len)
 
 void TcpConnection::sendInLoop(const std::string& message)
 {
+    loop_->assertInLoopThread();
 
+    if (state_ == kDisconnected || state_ == kDisconnecting) return ;                       // 确保已连上
+
+    if (message.empty()) return ;                                                           // 确保消息不为空
+    // 当前没有未发完的数据，而且写事件也没开着，所以可以直接走一次 write()，尽量把这次消息一次性发出去
+    if (outputBuffer_.readableBytes() == 0 && !channel_->isWriting()) {
+        ssize_t nw = ::write(channel_->fd(), message().data(), message.size());
+
+        if (nw >= 0) {
+            size_t written = static_cast<size_t>(nw);
+            if (written < message.size()) {                                                 // 没写完
+                outputBuffer_.append(message.data() + written, message.size());             // 追加没写完的数据
+                channel_->enableWriting();                                                  // 设置可写
+            } else if (writeCompleteCallback_)                                              // 写回调
+                writeCompleteCallback_(shared_from_this());
+
+            /*
+             * 当 outputBuffer_ 里积压的数据超过了阈值 highWaterMark_, 就触发一次 highWaterMarkCallback_
+             * 告诉上层：当前连接的发送缓冲区已经比较满了，业务层可以考虑减速或者暂停发送
+             */
+            if (outputBuffer_.readableBytes() > highWaterMark_ && highWaterMarkCallback_)
+                highWaterMarkCallback_(shared_from_this(), outputBuffer_.readableBytes());
+
+            return ;
+        }
+        /*
+         * 当前 write() 触发了非阻塞 socket 的正常暂时性阻塞，这说明“现在 socket 可写状态还没到，不能立刻继续写”=
+         * 所以把这次消息放进 outputBuffer_，并打开 channel_->enableWriting()，等后面 POLLOUT 事件来时，再继续写
+         */
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            outputBuffer_.append(message.data(), message.size());
+            channel_->enableWriting();
+        } else {
+            handleError();
+            return ;
+        }
+    } else {
+            // 处理未发完的数据
+            outputBuffer_.append(message.data(), message.size());
+            channel_->enableWriting();
+    }
+
+    if (outputBuffer_.readableBytes() > highWaterMark_ && highWaterMarkCallback_)
+        highWaterMarkCallback_(shared_from_this(), outputBuffer_.readableBytes());
 }
 
 void TcpConnection::sendInLoop(const void* data, size_t len)
 {
-
+    if (data == nullptr || len == 0) return;
+    sendInLoop(std::string(static_cast<const char*>(data)), len);
 }
 
 void TcpConnection::shutdown()
 {
-
+    if (loop_->isInLoopThread())
+        shutdownInLoop();
+    else
+        loop_->runInLoop([this]{
+            shutdownInLoop();
+        });
 }
 
 void TcpConnection::shutdownInLoop()
 {
+    loop_->assertInLoopThread();
 
+    if (state_ == kDisconnected || state_ == kConnecting) return ;
+
+    if (state_ != kDisconnecting) setState(kDisconnecting);
+
+    // 没有残余数据了和没有channel正在触发写事件
+    if (outputBuffer_.readableBytes() == 0 && !channel_->isWriting()) {
+        socket_->shutdownWrite();
+        return ;
+    }
+
+    if (!channel_->isWriting() && outputBuffer_.readableBytes() > 0) channel_->enableWriting();
 }
 
 void TcpConnection::forceClose()
 {
-
+    if (loop_->isInLoopThread()) forceCloseInLoop();
+    else loop_->runInLoop([this]{ forceCloseInLoop(); });
 }
 
 void TcpConnection::forceCloseInLoop()
 {
+    loop_->assertInLoopThread();
 
+    if (state_ == kDisconnected) return;
+
+    setState(kDisconnected);
+    channel_->disableAll();
+
+    if (connectionCallback_) connectionCallback_(shared_from_this());
+    if (closeCallback_) closeCallback_(shared_from_this());
 }
 
 void TcpConnection::setHighWaterMarkCallback(const HighWaterMarkCallback& cb, size_t hwm)
 {
-
+    highWaterMarkCallback_ = cb;
+    highWaterMark_ = hwm;
 }
 
 /*
@@ -235,22 +307,4 @@ void TcpConnection::setHighWaterMarkCallback(const HighWaterMarkCallback& cb, si
  *       fd 有没有被回收。
  */
 
-// TcpConnection::TcpConnection(EventLoop* loop, const std::string& name,
-//                              int sockfd, const InetAddress& localAddr,
-//                              const InetAddress& peerAddr) { /* ... */ }
-// TcpConnection::~TcpConnection() { /* ... */ }
-// void TcpConnection::connectEstablished() { /* ... */ }
-// void TcpConnection::connectDestroyed() { /* ... */ }
-// void TcpConnection::handleRead() { /* ... */ }
-// void TcpConnection::handleWrite() { /* ... */ }
-// void TcpConnection::handleClose() { /* ... */ }
-// void TcpConnection::handleError() { /* ... */ }
-// void TcpConnection::send(const std::string& message) { /* ... */ }
-// void TcpConnection::send(const void* data, size_t len) { /* ... */ }
-// void TcpConnection::sendInLoop(const std::string& message) { /* ... */ }
-// void TcpConnection::sendInLoop(const void* data, size_t len) { /* ... */ }
-// void TcpConnection::shutdown() { /* ... */ }
-// void TcpConnection::shutdownInLoop() { /* ... */ }
-// void TcpConnection::forceClose() { /* ... */ }
-// void TcpConnection::forceCloseInLoop() { /* ... */ }
-// void TcpConnection::setHighWaterMarkCallback(const HighWaterMarkCallback& cb, size_t hwm) { /* ... */ }
+
