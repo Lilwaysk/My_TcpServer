@@ -5,6 +5,10 @@
 #include <unistd.h>     /* read */
 #include <sys/types.h>  /* ssize_t */
 
+/*
+ * retrieve和retrieveAll只改变指针，不真正改变数据
+ */
+
 void Buffer::retrieve(size_t len)
 {
     if (len < readableBytes())
@@ -30,6 +34,7 @@ std::string Buffer::retrieveAsString(size_t len)
     return result;
 }
 
+// 对retrieveAsString的再封装调用
 std::string Buffer::retrieveAllAsString()
 {
     return retrieveAsString(readableBytes());
@@ -39,7 +44,7 @@ void Buffer::append(const char* data, size_t len)
 {
     ensureWritableBytes(len);
     std::copy(data, data + len, beginWrite());
-    hasWritten(len);
+    refreshWrite(len);
 }
 
 void Buffer::append(const std::string& str)
@@ -81,7 +86,7 @@ ssize_t Buffer::readFd(int fd, int* savedErrno)
     /*
      * 这里是最朴素的写法：先往可写空间buffer里读，读满了再用一个临时栈缓冲接一次防止数据丢失。
      * muduo 用 readv 一次系统调用同时读进这两个地方，省一次拷贝 ——
-     * 等你把这一版跑通了再换过去，别一上来就追这个。
+     * 把这一版跑通了再换过去，别一上来就追这个。
      */
     char extrabuf[65536];
     ssize_t n = 0;
@@ -94,9 +99,11 @@ ssize_t Buffer::readFd(int fd, int* savedErrno)
                 *savedErrno = errno;
             return n;
         }
-        if (static_cast<size_t>(n) < writable)
+        if (static_cast<size_t>(n) < writable) {                      // 读到的数据没有把当前可写区写满
+            refreshWrite(static_cast<size_t>(n));
             return n;           /* 内核缓冲区已经读空了 */
-        hasWritten(static_cast<size_t>(n));
+        }
+        refreshWrite(static_cast<size_t>(n));
     }
 
     /* 可写空间已经占满，可能还有数据：先读进栈上，再追加（会自动扩容） */

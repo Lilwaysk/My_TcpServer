@@ -17,16 +17,16 @@ class Channel;
 class TimerQueue;
 
 /*
- * 每线程一个的事件循环，对应你老代码里那个 while(1) 主循环。
+ * 每线程一个的事件循环，对应老代码里那个 while(1) 主循环。
  *
- * 线程模型一句话：主线程跑一个 EventLoop 只负责 accept，
+ * 线程模型：主线程跑一个 EventLoop 只负责 accept，
  * 每个 IO 线程跑自己的 EventLoop 负责收发。所有跨线程操作
  * 都通过 runInLoop / queueInLoop 挪到目标线程去执行 —— 于是
  * 业务回调里永远不需要加锁。
  */
 class EventLoop : noncopyable {
 public:
-    typedef std::function<void()> Functor;      // 回调函数
+    typedef std::function<void()> Functor;      // void()类型回调函数
     typedef std::vector<Channel*> ChannelList;  // 事件循环里有事件的 Channel 指针数组
 
     EventLoop();
@@ -47,8 +47,7 @@ public:
 
     void queueInLoop(const Functor& cb);    // 在事件循环线程中投递排队回调函数，等到下一轮循环再执行
 
-    /* 唤醒阻塞在 epoll_wait 的 loop */
-    void wakeup();                          // 唤醒事件循环等待的线程，通常是为了让它处理新加入的任务
+    void wakeup();                          // 唤醒阻塞在 epoll_wait 的 loop，唤醒事件循环等待的线程，通常是为了让它处理新加入的任务
 
     /* 必须在 loop 线程里调用 */
     void updateChannel(Channel* channel);   // 更新 Channel 的 epoll 注册状态

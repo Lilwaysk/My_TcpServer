@@ -16,7 +16,7 @@
 
 // 匿名空间 表达“这就是本文件的私有实现细节”，只在这个文件可见
 namespace {
-    const int kInitialEventListSize = 16;
+    const int kInitialEventListSize = 16;                                   // 初始化事件列表的长度
 }
 
 Poller::Poller(EventLoop* loop) :
@@ -32,6 +32,7 @@ Poller::Poller(EventLoop* loop) :
 Poller::~Poller()
 {
     assert(channels_.empty());
+    // 析构时关闭根节点
     ::close(epollfd_);
 }
 
@@ -63,10 +64,10 @@ void Poller::poll(int timeoutMs, ChannelList* activeChannels)
         * 需要处理 EINTR（被信号打断，继续）和其它 errno（记日志）。
     */
 
-    // vector.data() 返回指向数组首元素的指针
+    // vector.data() 返回指向数组首元素的指针，epoll_wait 返回就绪事件数量
     int numEvents = ::epoll_wait(epollfd_, events.data(), static_cast<int>(events.size()), timeoutMs);      // static_cast<int>(x.size()): 显示类型转换,将x.size()转换为int类型
 
-    // 如果有事件发生，遍历事件数组，将每个事件的 Channel 对象添加到 activeChannels 中
+    // 如果就绪事件大于0，遍历事件数组，将每个事件的 Channel 对象添加到 activeChannels 中
     if (numEvents > 0) {
         for (int i = 0; i < numEvents; ++i) {
             Channel* channel = static_cast<Channel*>(events[i].data.ptr);   // 将epoll_event的data.ptr指针关联到Channel对象上
@@ -99,27 +100,27 @@ void Poller::update(int operation, Channel* channel)
 
     // 根据操作类型（EPOLL_CTL_ADD / EPOLL_CTL_MOD / EPOLL_CTL_DEL）更新 Channel 的 epoll 注册状态
     struct epoll_event event;
-    event.events = channel->events();        // 设置事件类型
+    event.events = channel->getEvents();     // 取出Channel里当前的事件
     event.data.ptr = channel;                // 将 Channel 对象的指针存储在 epoll_event 的 data.ptr 中
 
-    // 调用 epoll_ctl 更新 epoll 注册状态
-    if (::epoll_ctl(epollfd_, operation, channel->fd(), &event) < 0) {
-        LOG_DEBUG << "epoll_ctl error: " << std::strerror(errno) << ", operation: " << operation << ", fd: " << channel->fd();
+    // 调用 epoll_ctl 更新 epoll 注册状态，修改内核里这个 fd 的监听状态
+    if (::epoll_ctl(epollfd_, operation, channel->getFd(), &event) < 0) {
+        LOG_DEBUG << "epoll_ctl error: " << std::strerror(errno) << ", operation: " << operation << ", fd: " << channel->getFd();
     }
 }
 
 void Poller::updateChannel(Channel* channel)
 {
     assertInLoopThread();
-    // 根据 channel->index() 三态决定调哪个 epoll_ctl
-    int index = channel->index();
-    int fd = channel->fd();
+    // 根据 channel->status() 三态决定调哪个 epoll_ctl
+    int status = channel->status();
+    int fd = channel->getFd();
 
-    if (index == Channel::kNew || index == Channel::kDeleted) {
+    if (status == Channel::kNew || status == Channel::kDeleted) {
         // 如果是新事件或者已经删除的事件，调用 epoll_ctl 添加事件
         // 这一支统一是 ADD：kNew 是第一次注册，
         // kDeleted 是 disableAll() 之后又重新启用（内核侧已经摘掉了）
-        if (index == Channel::kNew) {
+        if (status == Channel::kNew) {
             // 防止旧的 Channel 还在 channels_ 里，新的 Channel 又来注册，导致 channels_ 里有两个 Channel 指针指向同一个 fd
             assert(channels_.find(fd) == channels_.end());
             channels_[fd] = channel;
@@ -127,18 +128,18 @@ void Poller::updateChannel(Channel* channel)
             assert(channels_.find(fd) != channels_.end());
             assert(channels_[fd] == channel);
         }
-        channel->set_index(Channel::kAdded);
+        channel->set_status(Channel::kAdded);
         update(EPOLL_CTL_ADD, channel);
     } else {
         // 已经注册的事件，调用 epoll_ctl 修改事件
-        assert(index == Channel::kAdded);
+        assert(status == Channel::kAdded);
         assert(channels_.find(fd) != channels_.end());
         assert(channels_[fd] == channel);
 
         if (channel->isNoneEvent()) {
             // 如果没有事件发生，调用 epoll_ctl 删除事件
             update(EPOLL_CTL_DEL, channel);
-            channel->set_index(Channel::kDeleted);
+            channel->set_status(Channel::kDeleted);
         } else {
             // 如果有事件发生，调用 epoll_ctl 修改事件
             update(EPOLL_CTL_MOD, channel);
@@ -149,23 +150,23 @@ void Poller::updateChannel(Channel* channel)
 
     /*
     不能直接调用epoll_ctl, 需要通过update函数来调用epoll_ctl, update函数是epoll_ctl唯一的调用接口，统一封装好方便管理
-    if (index == Channel::kNew) {
+    if (status == Channel::kNew) {
         // 来新事件，第一次注册，调用 epoll_ctl 添加事件
         if (::epoll_ctl(epollfd_, EPOLL_CTL_ADD, fd, &event) < 0)
             LOG_ERROR << "epoll_ctl add error: " << std::strerror(errno);
-    } else if (index == Channel::kAdded) {
+    } else if (status == Channel::kAdded) {
         // 已经注册过的事件，修改事件类型，调用 epoll_ctl 修改事件
         if (::epoll_ctl(epollfd_, EPOLL_CTL_MOD, fd, &event) < 0)
             LOG_ERROR << "epoll_ctl mod error: " << std::strerror(errno);
-    } else if (index == Channel::kDeleted) {
+    } else if (status == Channel::kDeleted) {
         // 已经删除的事件，重新注册事件，调用 epoll_ctl 添加事件
         if (::epoll_ctl(epollfd_, EPOLL_CTL_ADD, fd, &event) < 0)
             LOG_ERROR << "epoll_ctl add error: " << std::strerror(errno);
     }
     */
 
-    // 更新 channel 的 index 状态
-    channel->set_index(channel->index() == Channel::kNew ? Channel::kAdded : channel->index());
+    // 更新 channel 的 status 状态
+    channel->set_status(channel->status() == Channel::kNew ? Channel::kAdded : channel->status());
 
     // 记录 channels_ 映射关系
     channels_[fd] = channel;
@@ -175,11 +176,11 @@ void Poller::removeChannel(Channel* channel)
 {
     // 拿东西
     assertInLoopThread();
-    int index = channel->index();           // 先拿到channel的index状态
-    int fd = channel->fd();                 // 拿到channel的fd
+    int status = channel->status();         // 先拿到channel的status状态
+    int fd = channel->getFd();              // 拿到channel的fd
 
     // 判状态
-    if (index == Channel::kAdded) {
+    if (status == Channel::kAdded) {
         // 如果是已经注册的事件，调用 epoll_ctl 删除事件
         if (::epoll_ctl(epollfd_, EPOLL_CTL_DEL, fd, nullptr) < 0)
             LOG_ERROR << "epoll_ctl del error: " << std::strerror(errno);
@@ -189,12 +190,12 @@ void Poller::removeChannel(Channel* channel)
     如果是kNew说明从来没注册成功过
     如果是kDeleted说明已经从epoll上删除过了
     这两种情况都不需要再调用epoll_ctl删除
-    if (index == Channel::kDeleted) {
+    if (status == Channel::kDeleted) {
         // 如果是已经删除的事件，说明已经从 epoll 中移除了，不需要重复删除
         LOG_DEBUG << "Channel fd " <<fd << " is already deleted from epoll";
     }
 
-    if (index == Channel::kNew) {
+    if (status == Channel::kNew) {
         // 如果是新事件说明还没有注册到 epoll 中，不需要删除
         LOG_DEBUG << "Channel fd " << fd << " is new, not registered in epoll";
     }
@@ -202,7 +203,7 @@ void Poller::removeChannel(Channel* channel)
     // 删channel
     channels_.erase(fd);
     // 这里有个坑: 不改成kDeleted而是改成kNew,
-    channel->set_index(Channel::kNew);
+    channel->set_status(Channel::kNew);
 }
 
 /*
@@ -236,14 +237,14 @@ void Poller::removeChannel(Channel* channel)
  *      让 Poller 只管填。
  *
  * 4) updateChannel(channel) —— 三态决定 epoll_ctl 的操作码：
- *      index == kNew 或 kDeleted -> EPOLL_CTL_ADD
- *      index == kAdded            -> EPOLL_CTL_MOD
- *    第一次 ADD 时记得 channel->set_index(kAdded)，
+ *      status == kNew 或 kDeleted -> EPOLL_CTL_ADD
+ *      status == kAdded           -> EPOLL_CTL_MOD
+ *    第一次 ADD 时记得 channel->set_status(kAdded)，
  *    并且记录 channels_[channel->fd()] = channel。
  *
  * 5) removeChannel(channel)
  *      从 channels_ 里 erase，调 EPOLL_CTL_DEL，
- *      然后把 index 设成 kNew（不是 kDeleted）——
+ *      然后把 status 设成 kNew（不是 kDeleted）——
  *      被 remove 掉的 Channel 通常马上就要析构了，不存在「删了还要加回来」。
  *      updateChannel 里判断「kDeleted 要 ADD」是为了支持 disableAll() 之后再 enableReading()。
  *

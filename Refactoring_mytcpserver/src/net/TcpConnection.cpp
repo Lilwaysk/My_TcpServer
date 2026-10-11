@@ -72,7 +72,7 @@ void TcpConnection::handleRead()
     if (state_ == kDisconnected) return;                                            // 还没连接上的直接返回
 
     int savedErrno = 0;
-    ssize_t n = inputBuffer_.readfd(channel_->fd(), &savedErrno);                   // 统计读到的总字节数
+    ssize_t n = inputBuffer_.readFd(channel_->getFd(), &savedErrno);                // 统计读到的总字节数
 
     if (n > 0) {
         if (messageCallback_)                                                       // 如果注册了回调函数
@@ -103,7 +103,7 @@ void TcpConnection::handleWrite()
         return ;
     }
 
-    ssize_t n = ::write(channel_->fd(), outputBuffer_.peek(), outputBuffer_.readableBytes());
+    ssize_t n = ::write(channel_->getFd(), outputBuffer_.peek(), outputBuffer_.readableBytes());
 
     if (n > 0) {
         outputBuffer_.retrieve(static_cast<size_t>(n));
@@ -112,10 +112,10 @@ void TcpConnection::handleWrite()
             channel_->disableWriting();
 
             if (writeCompleteCallback_) writeCompleteCallback_(shared_from_this());
-            if (state == kDisconnecting) shutdownInLoop();
+            if (state_ == kDisconnecting) shutdownInLoop();
             return ;
         }
-    } else if (n < 0 && errnno != EAGAIN && errno != EWOULDBLOCK) {
+    } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         handleError();
         return ;
     }
@@ -141,7 +141,7 @@ void TcpConnection::handleError()
     loop_->assertInLoopThread();
 
     int savedErrno = errno;
-    LOG_ERROR << "TcpConnection::handleError() - fd = " << channel_->fd()
+    LOG_ERROR << "TcpConnection::handleError() - fd = " << channel_->getFd()
               << ", errno = " << savedErrno << ": " << ::strerror(savedErrno);
 
     handleClose();
@@ -170,16 +170,16 @@ void TcpConnection::sendInLoop(const std::string& message)
     if (message.empty()) return ;                                                           // 确保消息不为空
     // 当前没有未发完的数据，而且写事件也没开着，所以可以直接走一次 write()，尽量把这次消息一次性发出去
     if (outputBuffer_.readableBytes() == 0 && !channel_->isWriting()) {
-        ssize_t nw = ::write(channel_->fd(), message().data(), message.size());
+        ssize_t nw = ::write(channel_->getFd(), message.data(), message.size());
 
         if (nw >= 0) {
             size_t written = static_cast<size_t>(nw);
             if (written < message.size()) {                                                 // 没写完
-                outputBuffer_.append(message.data() + written, message.size());             // 追加没写完的数据
+                // 没写完的数据就放入输出缓冲区里，message.data()指向消息缓冲区的起始地址，written是已经写了多少消息，message.data() + written相当于基地址 + 偏移地址的作用
                 channel_->enableWriting();                                                  // 设置可写
+                outputBuffer_.append(message.data() + written, message.size() - written);
             } else if (writeCompleteCallback_)                                              // 写回调
                 writeCompleteCallback_(shared_from_this());
-
             /*
              * 当 outputBuffer_ 里积压的数据超过了阈值 highWaterMark_, 就触发一次 highWaterMarkCallback_
              * 告诉上层：当前连接的发送缓冲区已经比较满了，业务层可以考虑减速或者暂停发送
@@ -213,7 +213,7 @@ void TcpConnection::sendInLoop(const std::string& message)
 void TcpConnection::sendInLoop(const void* data, size_t len)
 {
     if (data == nullptr || len == 0) return;
-    sendInLoop(std::string(static_cast<const char*>(data)), len);
+    sendInLoop(std::string(static_cast<const char*>(data), len));
 }
 
 void TcpConnection::shutdown()

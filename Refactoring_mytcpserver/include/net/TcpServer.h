@@ -94,7 +94,7 @@ private:
     ThreadInitCallback threadInitCallback_;
 
     bool started_;
-    int nextConnId_;                    /* 用来拼连接名 conn1 / conn2 ... */
+    int nextConnId_;                    // 计数器，初值为1，每来一个连接就++
     ConnectionMap connections_;
 };
 

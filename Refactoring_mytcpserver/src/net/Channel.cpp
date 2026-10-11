@@ -11,7 +11,7 @@ const int Channel::kReadEvent = POLLIN | POLLPRI;
 const int Channel::kWriteEvent = POLLOUT;
 
 Channel::Channel(EventLoop *loop, int fd) :
-    loop_(loop), fd_(fd), events_(0), revents_(0), index_(kNew), tied_(false), eventHandling_(false), addedToLoop_(false)
+    loop_(loop), fd_(fd), events_(0), revents_(0), status_(kNew), tied_(false), eventHandling_(false), addedToLoop_(false)
 {
 }
 
@@ -83,7 +83,7 @@ void Channel::handleEvent()
  *    需要 POLLRDHUP 时记得确认 _GNU_SOURCE —— g++ 默认就带，不用手写。
  *
  * 2) 构造 / 析构
- *      初始化 loop_、fd_、events_ = 0、revents_ = 0、index_ = kNew，
+ *      初始化 loop_、fd_、events_ = 0、revents_ = 0、status_ = kNew，
  *      四个 bool 全 false，addedToLoop_ = false。
  *      析构里 assert(!eventHandling_)，并且千万不要 close(fd_) —— fd 不归它管。
  *

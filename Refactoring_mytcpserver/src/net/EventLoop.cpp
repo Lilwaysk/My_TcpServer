@@ -107,8 +107,14 @@ void EventLoop::doPendingFunctors()
 
 void EventLoop::wakeup()
 {
+    /*
+     * EventLoop 的 poller_->poll() 也会监听这个 fd
+     * 当其他线程执行 wakeup() 时，写入一个值到这个 fd
+     * 这个 fd 变成“可读”，wakeupfd是用来做 线程唤醒/事件通知
+     * epoll_wait() 就返回了
+     */
     uint64_t one = 1;  // 写入 eventfd 的值，表示唤醒事件
-    ssize_t n = ::write(wakeupFd_, &one, sizeof(one));  // 向 wakeupFd_ 写入数据，触发唤醒事件，write后内核计数器加一，epoll_wait就会返回
+    ssize_t n = ::write(wakeupFd_, &one, sizeof(one));  // 向 wakeupFd_ 写入数据，触发唤醒事件，write后内核计数器加一，epoll_wait就会返回，要计数器不为 0，epoll_wait() 就能看到它“可读”
     if (n != sizeof(one)) {
         LOG_ERROR << "EventLoop::wakeup() writes " << n << " bytes instead of 8";  // 写入失败，记录错误日志
     }

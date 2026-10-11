@@ -9,7 +9,7 @@
 class EventLoop;
 
 /*
- * 一个 fd + 关注的事件 + 事件回调 打成的包。
+ * 一个 fd + 关注的事件 + 事件回调 打成的包。fd + event + callback
  *
  * 高级myevent_s
  *
@@ -23,12 +23,14 @@ class EventLoop;
  */
 class Channel : noncopyable {
 public:
-    typedef std::function<void()> EventCallback;        // 定义回调函数
+    // 定义空返回无参回调函数
+    typedef std::function<void()> EventCallback;
 
+    // 构造函数：传入一个事件循环 + fd
     Channel(EventLoop* loop, int fd);
     ~Channel();
 
-    /* EventLoop 的 poll 返回后调用，根据 Poller 填入的实际事件分发回调。 */
+    // 处理事件，EventLoop 的 poll 返回后调用，根据 Poller 填入的实际事件分发回调
     void handleEvent();
 
     // 注册对应事件的回调；只有发生该类事件且回调非空时才会调用。
@@ -38,15 +40,15 @@ public:
     void setErrorCallback(const EventCallback& cb) { errorCallback_ = cb; }
 
     // 返回关联的 fd；Channel 只记录 fd，不负责关闭它。
-    int fd() const { return fd_; }
+    int getFd() const { return fd_; }
     // 返回当前关注的事件掩码，不是本轮实际发生的事件。
-    int events() const { return events_; }
+    int getEvents() const { return events_; }
 
-    // 判断当前是否没有关注任何事件；不表示 fd 本轮没有事件到达。
+    // 判断当前是否没有关注事件发生；不表示 fd 本轮没有事件到达。
     bool isNoneEvent() const { return events_ == kNoneEvent; }
-    // 判断当前是否关注写事件。
+    // 判断当前是否出现写事件。
     bool isWriting() const { return (events_ & kWriteEvent) != 0; }
-    // 判断当前是否关注读事件。
+    // 判断当前是否出现读事件。
     bool isReading() const { return (events_ & kReadEvent) != 0; }
 
     /* Poller 填入本轮实际发生的事件；与 events_ 中的关注掩码相区别。 */
@@ -77,11 +79,11 @@ public:
     static const int kDeleted = 2;
 
     // 返回当前在 Poller 中的注册状态。
-    int index() const { return index_; }
+    int status() const { return status_; }
     // 由 Poller 更新注册状态；一般不应由业务代码直接调用。
-    void set_index(int idx) { index_ = idx; }
+    void set_status(int st) { status_ = st; }
 
-    // 返回所属 EventLoop；该指针不转移所有权。
+    // 返回所属 EventLoop 指针；该指针不转移所有权。
     EventLoop* ownerLoop() { return loop_; }
 
     /* 从 Poller 注销该 Channel；不会关闭 fd，通常在 Channel 析构前调用。 */
@@ -98,23 +100,24 @@ public:
     void tie(const std::shared_ptr<void>& obj);
 
 private:
+    // updateChannel()函数的封装，更新Channel的epoll注册状态
     void update();
-    /* 根据 revents_ 分发事件，调用对应回调；由 handleEvent() 在派发事件时调用。 */
+    // 根据 revents_ 分发事件，调用对应回调；由 handleEvent() 在派发事件时调用
     void handleEventWithGuard();
 
     static const int kNoneEvent;
     static const int kReadEvent;
     static const int kWriteEvent;
 
-    EventLoop* loop_;
-    const int fd_;
+    EventLoop* loop_;   // 当前eventloop的指针
+    const int fd_;      // 当前绑定的fd
     int events_;        /* 我关心什么 */
     int revents_;       /* 实际发生了什么 */
-    int index_;         /* kNew / kAdded / kDeleted 是这三个事件中的哪一个*/
+    int status_;        /* kNew / kAdded / kDeleted 是这三个事件中的哪一个*/
 
-    bool tied_;
+    bool tied_;                 // 防悬空引用标记位
     bool eventHandling_;        /* 正在派发事件，此时不许析构 */
-    bool addedToLoop_;
+    bool addedToLoop_;          // 丢进事件循环
     std::weak_ptr<void> tie_;
 
     EventCallback readCallback_;

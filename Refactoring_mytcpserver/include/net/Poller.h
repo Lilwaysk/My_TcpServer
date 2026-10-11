@@ -21,9 +21,9 @@ class EventLoop;
  */
 class Poller : noncopyable {
 public:
-    typedef std::vector<Channel*> ChannelList;              // 定义一个 Channel 指针的数组，用于存储活跃的 Channel 对象
+    typedef std::vector<Channel*> ChannelList;              // 定义一个 Channel 指针的数组，用于存储活跃的 Channel 对象，一个poller拥有一个ChannelList
 
-    explicit Poller(EventLoop* loop);
+    explicit Poller(EventLoop* loop);                       // 传入一个事件循环
     ~Poller();
 
     /* 阻塞等待事件，把活跃的 Channel 填进 activeChannels */
@@ -32,15 +32,14 @@ public:
     /* 注册 / 修改 / 注销，内部按 channel->index() 三态决定调哪个 epoll_ctl */
     void updateChannel(Channel* channel);                   // 更新 Channel 的 epoll 注册状态
     void removeChannel(Channel* channel);                   // 移除 Channel 的 epoll 注册状态
-
     void assertInLoopThread();                              // 确保 Poller 只能在它所属的 EventLoop 的线程中使用
 
 private:
     void update(int operation, Channel* channel);           // 根据操作类型（EPOLL_CTL_ADD / EPOLL_CTL_MOD / EPOLL_CTL_DEL）更新 Channel 的 epoll 注册状态
 
     EventLoop* ownerLoop_;
-    int epollfd_;
-    std::map<int, Channel*> channels_;      /* fd -> Channel*，析构时要检查它是否为空 */
+    int epollfd_;                                           // epoll根节点
+    std::map<int, Channel*> channels_;                      // fd -> Channel*，析构时要检查它是否为空，Poller中的channels是一个map
 };
 
 #endif

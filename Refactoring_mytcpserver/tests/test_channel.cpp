@@ -63,7 +63,7 @@ static void testEnableReadingTriggersCallback()
     loop.loop();
 
     EXPECT_TRUE(called);
-    EXPECT_TRUE(ch.index() == Channel::kAdded);
+    EXPECT_TRUE(ch.status() == Channel::kAdded);
 
     ch.remove();
     ::close(efd);
@@ -113,11 +113,11 @@ static void testRemoveUnregistersFromPoller()
         (void)n;
     });
     ch.enableReading();
-    EXPECT_TRUE(ch.index() == Channel::kAdded);
+    EXPECT_TRUE(ch.status() == Channel::kAdded);
 
     ch.remove();
-    /* remove() 之后 index 应回到 kNew（不是 kDeleted）——Poller 里也没了这条记录 */
-    EXPECT_TRUE(ch.index() == Channel::kNew);
+    /* remove() 之后 status 应回到 kNew（不是 kDeleted）——Poller 里也没了这条记录 */
+    EXPECT_TRUE(ch.status() == Channel::kNew);
 
     writeEventfd(efd);                       /* 已注销，写进去也不该有回调 */
     loop.runAfter(0.05, [&]() { loop.quit(); });

@@ -2,6 +2,8 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstring>
+#include <unistd.h>
 
 #include "base/Logger.h"
 #include "net/Acceptor.h"
@@ -19,12 +21,13 @@ TcpServer::TcpServer(EventLoop* loop, const InetAddress& listenAddr,
 {
     assert(loop_ != nullptr);
 
+    // .reset(): 重新绑定一个新对象
     acceptor_.reset(new Acceptor(loop_, listenAddr, option == kReusePort));
-    acceptor_->setNewConnectionCallback([this](int sockfd, const InetAddress& peerAddr){
-        newConnection(sockfd, peerAddr)
+    acceptor_->setNewConnectionCallback([this](int sockfd, const InetAddress& peerAddr) {
+        newConnection(sockfd, peerAddr);
     });
 
-    threadPool_->reset(new EventLoopThreadPool(loop_, name_));
+    threadPool_.reset(new EventLoopThreadPool(loop_, name_));
 }
 
 TcpServer::~TcpServer()
@@ -34,27 +37,60 @@ TcpServer::~TcpServer()
 
 void TcpServer::setThreadNum(int numThreads)
 {
-
+    assert(!started_);
+    threadPool_->setThreadNum(numThreads);
 }
 
 void TcpServer::start()
 {
+    // 还没开始 则开始
+    assert(!started_);
+    started_ = true;
 
+    threadPool_->start(threadInitCallback_);
+    acceptor_->listen();
 }
 
 void TcpServer::newConnection(int sockfd, const InetAddress& peerAddr)
 {
+    EventLoop* ioLoop = threadPool_->getNextLoop();
 
+    char buf[32];
+    snprintf(buf, sizeof buf, "#%d", nextConnId_++);
+    std::string connName = name_ + buf;
+
+    struct sockaddr_in localAddrIn;
+    memset(&localAddrIn, 0 , sizeof localAddrIn);
+    socklen_t len = sizeof localAddrIn;
+    if (::getsockname(sockfd, (struct sockaddr*)&localAddrIn, &len) == 0) {
+        InetAddress localAddr(localAddrIn);
+        TcpConnectionPtr conn(new TcpConnection(ioLoop, connName, sockfd, localAddr, peerAddr));
+
+        conn->setConnectionCallback(connectionCallback_);
+        conn->setMessageCallback(messageCallback_);
+        conn->setWriteCompleteCallback(writeCompleteCallback_);
+        conn->setCloseCallback(std::bind(&TcpServer::removeConnection, this, std::placeholders::_1));
+
+        connections_[connName] = conn;
+
+        ioLoop->runInLoop(std::bind(&TcpConnection::connectEstablished, conn));
+    } else {
+        LOG_ERROR << "TcpServer::newConnection - getsockname failed";
+        ::close(sockfd);
+    }
 }
 
 void TcpServer::removeConnection(const TcpConnectionPtr& conn)
 {
-
+    loop_->runInLoop([this, conn]() { removeConnectionInLoop(conn); });
 }
 
 void TcpServer::removeConnectionInLoop(const TcpConnectionPtr& conn)
 {
+    connections_.erase(conn->name());
 
+    EventLoop* ioLoop = conn->getLoop();
+    ioLoop->queueInLoop([this,conn]() { conn->connectDestroyed(); });
 }
 
 /*

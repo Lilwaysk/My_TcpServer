@@ -19,6 +19,7 @@ enum class LogLevel { TRACE, DEBUG, INFO, WARN, ERROR, FATAL };
 
 class Logger {
 public:
+    // 日志输出文件，行数，等级
     Logger(const char* file, int line, LogLevel level);
     ~Logger();      /* 析构时才真正输出，保证一条日志原子写出 */
 
@@ -30,8 +31,8 @@ public:
 
 private:
     const char* file_;                                      // 保存的是产生日志的源代码文件名
-    int line_;
-    LogLevel level_;
+    int line_;                                              // 记录“日志输出所在的代码行号”
+    LogLevel level_;                                        // 记录“这条日志的等级”
     std::ostringstream stream_;                             // Logger析构时，返回的日志输出流
 };
 
