@@ -45,7 +45,7 @@ void EventLoop::loop()
 {
     assertInLoopThread();
     looping_ = true;                                                     // 设置事件循环正在运行的标志
-    quit_ = false;                                                       // 重置退出标志
+    // Keep quit requests made before loop() starts (for example during thread shutdown).
     while (!quit_) {
         activeChannels_.clear();
         poller_->poll(kPollTimeMs, &activeChannels_);
@@ -191,7 +191,7 @@ void EventLoop::runEvery(double interval, const TimerCallback& cb)
  *
  * 3) loop() —— 主循环
  *      assertInLoopThread();
- *      looping_ = true;  quit_ = false;
+ *      looping_ = true;
  *      while (!quit_) {
  *          activeChannels_.clear();
  *          poller_->poll(kPollTimeMs, &activeChannels_);   // 阻塞点

@@ -175,9 +175,8 @@ void TcpConnection::sendInLoop(const std::string& message)
         if (nw >= 0) {
             size_t written = static_cast<size_t>(nw);
             if (written < message.size()) {                                                 // 没写完
-                // 没写完的数据就放入输出缓冲区里，message.data()指向消息缓冲区的起始地址，written是已经写了多少消息，message.data() + written相当于基地址 + 偏移地址的作用
-                channel_->enableWriting();                                                  // 设置可写
                 outputBuffer_.append(message.data() + written, message.size() - written);
+                channel_->enableWriting();                                                  // 设置可写
             } else if (writeCompleteCallback_)                                              // 写回调
                 writeCompleteCallback_(shared_from_this());
             /*
@@ -306,5 +305,3 @@ void TcpConnection::setHighWaterMarkCallback(const HighWaterMarkCallback& cb, si
  * 验收：用 TcpServer 重写 echo，行为不回退；用 netstat 看关掉客户端后
  *       fd 有没有被回收。
  */
-
-

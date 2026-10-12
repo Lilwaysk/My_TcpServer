@@ -27,8 +27,8 @@ set(NET_SOURCES
     src/net/InetAddress.cpp         # 第 5 步
     src/net/Acceptor.cpp            # 第 5 步
     src/net/TcpConnection.cpp       # 第 6 步
+    src/net/EventLoopThread.cpp     # 第 7 步
     # src/net/TcpServer.cpp          # 第 6 步
-    # src/net/EventLoopThread.cpp    # 第 7 步
     # src/net/EventLoopThreadPool.cpp# 第 7 步
 )
 
@@ -73,6 +73,9 @@ target_link_libraries(test_socket PRIVATE netlib)
 
 add_executable(test_acceptor tests/test_acceptor.cpp)
 target_link_libraries(test_acceptor PRIVATE netlib)
+
+add_executable(test_eventloopthread tests/test_eventloopthread.cpp)
+target_link_libraries(test_eventloopthread PRIVATE netlib)
 
 #
 # 示例：等第 6 步 TcpServer 写完再打开这个注释

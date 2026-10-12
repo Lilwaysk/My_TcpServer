@@ -36,6 +36,7 @@ private:
 
     EventLoop* loop_;               /* threadFunc 里赋值，startLoop 里读取 */
     bool exiting_;
+    bool started_;
     std::thread thread_;
     std::mutex mutex_;
     std::condition_variable cond_;
