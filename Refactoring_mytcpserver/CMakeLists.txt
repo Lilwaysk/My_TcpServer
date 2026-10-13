@@ -28,8 +28,8 @@ set(NET_SOURCES
     src/net/Acceptor.cpp            # 第 5 步
     src/net/TcpConnection.cpp       # 第 6 步
     src/net/EventLoopThread.cpp     # 第 7 步
-    # src/net/TcpServer.cpp          # 第 6 步
-    # src/net/EventLoopThreadPool.cpp# 第 7 步
+    src/net/TcpServer.cpp           # 第 6 步
+    src/net/EventLoopThreadPool.cpp # 第 7 步
 )
 
 add_library(netlib STATIC ${NET_SOURCES})
@@ -80,5 +80,5 @@ target_link_libraries(test_eventloopthread PRIVATE netlib)
 #
 # 示例：等第 6 步 TcpServer 写完再打开这个注释
 #
-# add_executable(echo_server examples/echo_server.cpp)
-# target_link_libraries(echo_server PRIVATE netlib)
+add_executable(echo_server examples/echo_server.cpp)
+target_link_libraries(echo_server PRIVATE netlib)

@@ -6,6 +6,49 @@
 #include "net/EventLoop.h"
 #include "net/EventLoopThread.h"
 
+EventLoopThreadPool::EventLoopThreadPool(EventLoop* baseLoop, const std::string& nameArg)
+    : baseLoop_(baseLoop),
+      name_(nameArg),
+      started_(false),
+      numThreads_(0),
+      next_(0)
+{
+}
+
+EventLoopThreadPool::~EventLoopThreadPool()
+{
+    // 不需要手动写，unique_ptr 会自动销毁线程对象
+    // EventLoopThread 的析构函数会负责 quit + join
+}
+
+void EventLoopThreadPool::start(const ThreadInitCallback& cb)
+{
+    started_ = true;
+
+    for (int i = 0; i < numThreads_; ++i) {
+        EventLoopThread* thread = new EventLoopThread(cb, name_ + std::to_string(i));
+        threads_.emplace_back(thread);          // 在容器末尾直接构造一个新元素，不用先创建临时对象再拷贝/移动
+        loops_.push_back(thread->startLoop());
+    }
+
+    if (numThreads_ == 0 && cb) cb(baseLoop_);
+}
+
+EventLoop* EventLoopThreadPool::getNextLoop()
+{
+    if (loops_.empty()) return baseLoop_;
+
+    EventLoop* loop = loops_[static_cast<size_t>(next_)];
+    next_ = (next_ + 1) % static_cast<int>(loops_.size());
+    return loop;
+}
+
+std::vector<EventLoop*> EventLoopThreadPool::getAllLoops()
+{
+    return loops_;
+}
+
+
 /*
  * ============ EventLoopThreadPool 实现清单（README 第四节「第 7 步」）============
  *
@@ -45,9 +88,3 @@
  * 验收：echo_server 里调 setThreadNum(n)，用压测工具打，
  *       QPS 应该随核数上升；用 top -H 看确实有 n+1 个线程在跑。
  */
-
-// EventLoopThreadPool::EventLoopThreadPool(EventLoop* baseLoop, const std::string& nameArg) { /* ... */ }
-// EventLoopThreadPool::~EventLoopThreadPool() { /* ... */ }
-// void EventLoopThreadPool::start(const ThreadInitCallback& cb) { /* ... */ }
-// EventLoop* EventLoopThreadPool::getNextLoop() { /* ... */ }
-// std::vector<EventLoop*> EventLoopThreadPool::getAllLoops() { /* ... */ }

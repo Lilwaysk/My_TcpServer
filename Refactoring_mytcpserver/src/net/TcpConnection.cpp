@@ -30,13 +30,14 @@ TcpConnection::TcpConnection(EventLoop* loop, const std::string& name,
     channel_->setErrorCallback([this]() { handleError(); });
 }
 
-// 析构函数：取消所有事件监听，并从 poller 中移除 channel。
+// 析构函数。
+// 注意：这里**不要**去动 channel_ / loop_。最后一个 shared_ptr 有可能是在
+// base loop 线程里被释放的（removeConnection 的 lambda 在 doPendingFunctors
+// 里析构），那时 channel_->disableAll()/remove() 会跨线程操作 IO 线程的
+// EventLoop，触发 assertInLoopThread() 直接 abort。
+// channel 的注销已经由 handleClose() 和 connectDestroyed() 在本线程做完了。
 TcpConnection::~TcpConnection()
 {
-    if (channel_) {
-        channel_->disableAll();
-        channel_->remove();
-    }
 }
 
 // 当连接建立后，开始监听 socket 的读事件。
