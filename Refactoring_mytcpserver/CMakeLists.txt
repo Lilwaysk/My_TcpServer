@@ -82,3 +82,24 @@ target_link_libraries(test_eventloopthread PRIVATE netlib)
 #
 add_executable(echo_server examples/echo_server.cpp)
 target_link_libraries(echo_server PRIVATE netlib)
+
+#
+# 协议层（M1）。协议与网络库分离，依赖方向：chatproto -> netlib -> base。
+# 每写完一个协议 / 业务源文件，就往 CHATPROTO_SOURCES 里加一行。
+#
+set(CHATPROTO_SOURCES
+    src/protocol/Codec.cpp
+)
+
+add_library(chatproto STATIC ${CHATPROTO_SOURCES})
+target_include_directories(chatproto PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(chatproto PUBLIC netlib)
+
+#
+# M1 的测试与验收程序
+#
+add_executable(test_codec tests/test_codec.cpp)
+target_link_libraries(test_codec PRIVATE chatproto)
+
+add_executable(protocol_echo_server examples/protocol_echo_server.cpp)
+target_link_libraries(protocol_echo_server PRIVATE chatproto)
