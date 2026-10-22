@@ -31,7 +31,7 @@ void EventLoopThreadPool::start(const ThreadInitCallback& cb)
         loops_.push_back(thread->startLoop());
     }
 
-    if (numThreads_ == 0 && cb) cb(baseLoop_);
+    if (numThreads_ == 0 && cb) cb(baseLoop_); 
 }
 
 EventLoop* EventLoopThreadPool::getNextLoop()
